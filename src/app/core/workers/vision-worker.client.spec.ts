@@ -2,7 +2,19 @@ import { TestBed } from '@angular/core/testing';
 import { fakeBitmap, fakeFrame } from '../../../../tests/fixtures/fake-frames';
 import { FakeVisionWorker, happyPathReply } from '../../../../tests/fixtures/fake-vision-worker';
 import { CalibrationCorners } from '../../domain/board/calibration';
+import { BoardRecognitionResult } from '../../domain/board/observation';
 import { DEFAULT_VISION_CONFIG } from '../../vision/vision.config';
+
+function recognitionResult(): BoardRecognitionResult {
+  return {
+    board: { cells: Array(64).fill('EMPTY'), confidenceBySquare: Array(64).fill(1), timestamp: 1 },
+    squares: [],
+    status: 'SUCCESS',
+    overallConfidence: 1,
+    warnings: [],
+    timestamp: 1,
+  };
+}
 import {
   VISION_WORKER_FACTORY,
   VISION_WORKER_TIMEOUTS,
@@ -209,5 +221,106 @@ describe('VisionWorkerClient', () => {
 
     expect(worker().terminated).toBe(true);
     expect(client.state()).toBe('DISPOSED');
+  });
+
+  describe('process() (E3)', () => {
+    it('sends PROCESS_FRAME with the bitmap transferred and returns the result', async () => {
+      const client = setup((message) =>
+        message.type === 'INIT'
+          ? { type: 'READY' }
+          : message.type === 'PROCESS_FRAME'
+            ? { type: 'RECOGNITION_RESULT', frameId: message.frameId, result: recognitionResult() }
+            : null,
+      );
+      const frame = fakeFrame('f9', 0);
+
+      const output = await client.process(frame);
+
+      expect(output.result.status).toBe('SUCCESS');
+      const sent = worker().received.find((entry) => entry.message.type === 'PROCESS_FRAME');
+      expect(sent?.transfer).toEqual([frame.bitmap]);
+    });
+
+    it('routes a PROCESS_FRAME error to the matching frame', async () => {
+      const client = setup((message) =>
+        message.type === 'INIT'
+          ? { type: 'READY' }
+          : message.type === 'PROCESS_FRAME'
+            ? {
+                type: 'ERROR',
+                code: 'NOT_CALIBRATED',
+                message: 'x',
+                frameId: message.frameId,
+                requestType: 'PROCESS_FRAME',
+              }
+            : null,
+      );
+
+      await expect(client.process(fakeFrame('f10', 0))).rejects.toMatchObject({
+        workerCode: 'NOT_CALIBRATED',
+      });
+    });
+
+    it('rejects a malformed recognition result', async () => {
+      const client = setup((message) => (message.type === 'INIT' ? { type: 'READY' } : null));
+      await client.init();
+      const pending = client.process(fakeFrame('f11', 0));
+      await flush();
+
+      worker().reply({
+        type: 'RECOGNITION_RESULT',
+        frameId: 'f11',
+        result: { board: { cells: [] } },
+      });
+
+      expect(client.lastError()?.failure).toBe('INVALID_RESPONSE');
+      client.dispose();
+      await expect(pending).rejects.toMatchObject({ failure: 'DISPOSED' });
+    });
+
+    it('releases the frame when it cannot be sent to the worker', async () => {
+      const client = setup((message) => (message.type === 'INIT' ? { type: 'READY' } : null));
+      await client.init();
+      worker().terminated = true; // postMessage now throws
+      const frame = fakeFrame('f12', 0);
+
+      await expect(client.process(frame)).rejects.toMatchObject({ failure: 'WORKER_CRASHED' });
+      expect(frame.bitmap.closed).toBe(true);
+    });
+  });
+
+  describe('refine() (ADR-027)', () => {
+    it('transfers the frame and returns the refined corners', async () => {
+      const client = setup();
+      const frame = fakeFrame('r1', 0);
+
+      const refined = await client.refine(CORNERS, frame);
+
+      expect(refined.corners.topLeft.x).toBe(4);
+      expect(refined.scoreAfter).toBe(50);
+      const sent = worker().received.find((entry) => entry.message.type === 'REFINE_CALIBRATION');
+      expect(sent?.transfer).toEqual([frame.bitmap]);
+      expect(frame.bitmap.closed).toBe(true);
+    });
+
+    it('routes a refine error to its frame', async () => {
+      const client = setup((message) =>
+        message.type === 'INIT'
+          ? { type: 'READY' }
+          : message.type === 'REFINE_CALIBRATION'
+            ? {
+                type: 'ERROR',
+                code: 'REFINE_FAILED',
+                message: 'x',
+                frameId: message.frameId,
+                requestType: 'REFINE_CALIBRATION',
+              }
+            : null,
+      );
+
+      await expect(client.refine(CORNERS, fakeFrame('r2', 0))).rejects.toMatchObject({
+        workerCode: 'REFINE_FAILED',
+      });
+    });
   });
 });

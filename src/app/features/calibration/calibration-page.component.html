@@ -93,7 +93,40 @@
           >
             Restaurar cantos
           </button>
+          <button
+            type="button"
+            class="rounded-md border border-brand-600 bg-white px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+            [disabled]="!canAdjust()"
+            (click)="store.autoAdjust()"
+          >
+            Ajustar automaticamente
+          </button>
         </div>
+        @switch (store.adjust().status) {
+          @case ('WORKING') {
+            <p role="status" class="text-sm text-stone-600">Ajustando os cantos às casas…</p>
+          }
+        }
+        @if (store.adjust(); as adjust) {
+          @if (adjust.status === 'DONE') {
+            <p role="status" class="text-sm text-brand-700" data-testid="adjust-status">
+              @if (adjust.shiftPx < 1) {
+                Os cantos já estavam alinhados às casas.
+              } @else {
+                Cantos ajustados (até {{ adjust.shiftPx }} px; contraste da grade +{{
+                  adjust.gainPercent
+                }}%). Confira e salve.
+              }
+            </p>
+          }
+          @if (adjust.status === 'ERROR') {
+            <p role="alert" class="text-sm text-red-800">{{ adjust.message }}</p>
+          }
+        }
+        <p class="text-xs text-stone-500">
+          Posicione os marcadores aproximadamente nos cantos e use
+          <strong>Ajustar automaticamente</strong> para encaixá-los nas casas.
+        </p>
         <p class="text-xs text-stone-500">
           Teclado: selecione um marcador com Tab e mova com as setas (Shift = passos maiores).
         </p>
@@ -133,6 +166,14 @@
           @if (save.status === 'ERROR') {
             <p role="alert" class="text-sm text-red-800">{{ save.message }}</p>
           }
+        }
+        @if (store.savedProfile() && store.save().status !== 'SAVING') {
+          <a
+            routerLink="/recognition"
+            class="inline-block text-sm font-medium text-brand-700 underline"
+          >
+            Continuar para o reconhecimento
+          </a>
         }
       </section>
     </div>

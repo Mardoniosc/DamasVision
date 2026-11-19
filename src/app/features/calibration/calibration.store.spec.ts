@@ -256,6 +256,44 @@ describe('CalibrationStore', () => {
     });
   });
 
+  describe('automatic adjustment (ADR-027)', () => {
+    it('applies the refined corners in screen order and source pixels', async () => {
+      await TestBed.inject(CameraService).start();
+      const source = { width: 1280, height: 960 }; // frames are 640×480
+      store().setSourceSize(source);
+      store().rotate(); // ROTATED_90
+      const before = store().corners();
+
+      await store().autoAdjust();
+
+      // The fake worker shifts every canonical corner by +4 frame px in x → +8 source px.
+      const after = store().corners();
+      expect(after?.topLeft.x).toBeCloseTo((before?.topLeft.x ?? 0) + 8, 6);
+      expect(after?.bottomRight.y).toBeCloseTo(before?.bottomRight.y ?? 0, 6);
+      expect(store().orientation()).toBe('ROTATED_90');
+      expect(store().adjust()).toEqual({ status: 'DONE', shiftPx: 8, gainPercent: 25 });
+      expect(workers[0]?.sent('REFINE_CALIBRATION')).toHaveLength(1);
+    });
+
+    it('a manual edit clears the adjustment message', async () => {
+      await TestBed.inject(CameraService).start();
+      store().setSourceSize(SIZE);
+      await store().autoAdjust();
+
+      store().nudgeCorner('topLeft', 1, 0);
+
+      expect(store().adjust().status).toBe('IDLE');
+    });
+
+    it('reports a missing camera', async () => {
+      store().setSourceSize(SIZE);
+
+      await store().autoAdjust();
+
+      expect(store().adjust()).toMatchObject({ status: 'ERROR' });
+    });
+  });
+
   describe('saving (E2-T06)', () => {
     it('creates an active profile with the corners, orientation and camera', async () => {
       await TestBed.inject(CameraService).start('cam-rear');

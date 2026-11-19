@@ -1,3 +1,8 @@
+import {
+  DEFAULT_COLOR_THRESHOLDS,
+  DEFAULT_SHAPE_THRESHOLDS,
+} from './recognition/classifier.config';
+
 /**
  * Vision configuration (docs/execution-specification.md §14). Experimental defaults,
  * to be tuned with physical tests. Recognition fields are consumed from E3 onwards.
@@ -28,7 +33,10 @@ export const DEFAULT_VISION_CONFIG: VisionConfig = {
   stableObservationCount: 3,
   confidenceThresholds: { high: 0.95, acceptable: 0.8, uncertain: 0.6 },
   roiInsetRatio: 0.15,
-  classifier: { colorThresholds: {}, shapeThresholds: {} },
+  classifier: {
+    colorThresholds: DEFAULT_COLOR_THRESHOLDS,
+    shapeThresholds: DEFAULT_SHAPE_THRESHOLDS,
+  },
 };
 
 /** Structural check for configs received over postMessage. */

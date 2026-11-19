@@ -1,10 +1,12 @@
 import { DestroyRef, inject, Injectable, InjectionToken, signal } from '@angular/core';
 import { CalibrationCorners } from '../../domain/board/calibration';
+import { BoardRecognitionResult } from '../../domain/board/observation';
 import { DEFAULT_VISION_CONFIG, VisionConfig } from '../../vision/vision.config';
 import { CapturedFrame, releaseFrame } from '../frame-capture/frame-capture.models';
 import {
   CalibrationResult,
   isVisionWorkerResponse,
+  SquareDiagnostic,
   VisionWorkerRequest,
   VisionWorkerResponse,
 } from './vision-worker.protocol';
@@ -52,6 +54,19 @@ export const VISION_WORKER_TIMEOUTS = new InjectionToken<VisionWorkerTimeouts>(
 );
 
 export type VisionWorkerState = 'IDLE' | 'STARTING' | 'READY' | 'ERROR' | 'DISPOSED';
+
+export interface RecognitionOutput {
+  readonly result: BoardRecognitionResult;
+  readonly diagnostics: readonly SquareDiagnostic[];
+}
+
+export interface RefinedCalibration {
+  /** Refined canonical corners, in the frame's pixels. */
+  readonly corners: CalibrationCorners;
+  readonly scoreBefore: number;
+  readonly scoreAfter: number;
+  readonly maxShiftPx: number;
+}
 
 export type VisionWorkerFailure =
   'TIMEOUT' | 'WORKER_CRASHED' | 'DISPOSED' | 'SUPERSEDED' | 'INVALID_RESPONSE' | 'WORKER_ERROR';
@@ -134,14 +149,18 @@ export class VisionWorkerClient {
       releaseFrame(frame);
       throw error;
     }
-    const key = `RECTIFY_FRAME:${frame.frameId}`;
-    const response = await this.request(
-      key,
-      { type: 'RECTIFY_FRAME', frame: frame.bitmap, frameId: frame.frameId },
-      [frame.bitmap],
-    );
-    // The bitmap was transferred; closing the detached handle is a no-op safeguard.
-    releaseFrame(frame);
+    let response: VisionWorkerResponse;
+    try {
+      response = await this.request(
+        `RECTIFY_FRAME:${frame.frameId}`,
+        { type: 'RECTIFY_FRAME', frame: frame.bitmap, frameId: frame.frameId },
+        [frame.bitmap],
+      );
+    } finally {
+      // Normally transferred (closing the detached handle is a no-op); if sending
+      // failed before the transfer, this releases the bitmap.
+      releaseFrame(frame);
+    }
     if (response.type !== 'RECTIFIED_FRAME') {
       throw new VisionWorkerError(
         'INVALID_RESPONSE',
@@ -149,6 +168,64 @@ export class VisionWorkerClient {
       );
     }
     return response.image;
+  }
+
+  /** Recognizes the board in a frame (spec §9 PROCESS_FRAME). Takes ownership of the frame. */
+  async process(frame: CapturedFrame): Promise<RecognitionOutput> {
+    try {
+      await this.init();
+    } catch (error) {
+      releaseFrame(frame);
+      throw error;
+    }
+    let response: VisionWorkerResponse;
+    try {
+      response = await this.request(
+        `PROCESS_FRAME:${frame.frameId}`,
+        { type: 'PROCESS_FRAME', frame: frame.bitmap, frameId: frame.frameId },
+        [frame.bitmap],
+      );
+    } finally {
+      releaseFrame(frame);
+    }
+    if (response.type !== 'RECOGNITION_RESULT') {
+      throw new VisionWorkerError(
+        'INVALID_RESPONSE',
+        `Unexpected ${response.type} for PROCESS_FRAME`,
+      );
+    }
+    return { result: response.result, diagnostics: response.diagnostics ?? [] };
+  }
+
+  /**
+   * Snaps canonical corners to the square borders visible in `frame` (ADR-027).
+   * Takes ownership of the frame.
+   */
+  async refine(corners: CalibrationCorners, frame: CapturedFrame): Promise<RefinedCalibration> {
+    try {
+      await this.init();
+    } catch (error) {
+      releaseFrame(frame);
+      throw error;
+    }
+    let response: VisionWorkerResponse;
+    try {
+      response = await this.request(
+        `REFINE_CALIBRATION:${frame.frameId}`,
+        { type: 'REFINE_CALIBRATION', corners, frame: frame.bitmap, frameId: frame.frameId },
+        [frame.bitmap],
+      );
+    } finally {
+      releaseFrame(frame);
+    }
+    if (response.type !== 'CALIBRATION_REFINED') {
+      throw new VisionWorkerError(
+        'INVALID_RESPONSE',
+        `Unexpected ${response.type} for REFINE_CALIBRATION`,
+      );
+    }
+    const { corners: refined, scoreBefore, scoreAfter, maxShiftPx } = response;
+    return { corners: refined, scoreBefore, scoreAfter, maxShiftPx };
   }
 
   reset(): void {
@@ -293,9 +370,18 @@ export class VisionWorkerClient {
         return 'CALIBRATE';
       case 'RECTIFIED_FRAME':
         return `RECTIFY_FRAME:${response.frameId}`;
+      case 'RECOGNITION_RESULT':
+        return `PROCESS_FRAME:${response.frameId}`;
+      case 'CALIBRATION_REFINED':
+        return `REFINE_CALIBRATION:${response.frameId}`;
       case 'ERROR':
         if (response.frameId) {
-          return `RECTIFY_FRAME:${response.frameId}`;
+          const type =
+            response.requestType === 'PROCESS_FRAME' ||
+            response.requestType === 'REFINE_CALIBRATION'
+              ? response.requestType
+              : 'RECTIFY_FRAME';
+          return `${type}:${response.frameId}`;
         }
         return response.requestType ?? null;
     }

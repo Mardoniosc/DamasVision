@@ -154,3 +154,55 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
 ## ADR-021 — Duplicate homography in TypeScript (E2)
 
 - **Decision:** a small pure-TS homography (`domain/board/homography.ts`) projects the grid overlay on the main thread while handles are dragged. OpenCV remains the implementation that warps pixels. A unit test asserts both agree to 1e-6.
+
+## ADR-022 — Classical, self-referenced square classifier (E3)
+
+- **Context:** spec §7 asks for configurable classical features (HSV, luminance, contrast, area, king marks) and explicit `UNKNOWN`, without ML.
+- **Decision:** features are computed in pure TypeScript on the rectified 800×800 board, and OpenCV is used for the warp, the denoising blur and the frame-quality checks. Each square is judged against references that share its lighting:
+  - its own corners give the background;
+  - neighbouring light squares (which never hold pieces) give the illumination.
+
+  Color comes from the body/background luminance ratio. The foreground threshold scales with the local illumination. Occlusion and board-contrast guards turn risky "empty" answers into `UNKNOWN`. Details and measurements are in `docs/vision/recognition.md`.
+
+- **Consequence:** deterministic and testable without a browser. Kings require a central mark (spec §7 assumption). Pieces with low luminance contrast against the dark squares (for example red on brown) need threshold tuning.
+
+## ADR-023 — Typed classifier config inside `VisionConfig` (E3-T01)
+
+- **Decision:** `ColorThresholds`/`ShapeThresholds` are type aliases, not interfaces, so they stay assignable to the spec's `Record<string, number>`; the lint rule is disabled with a justification. `resolveClassifierConfig` merges overrides over defaults, rejects unknown keys and invalid ranges, and runs at worker `INIT` (an invalid config gives `INVALID_REQUEST`).
+
+## ADR-024 — `/recognition` route (E3)
+
+- **Context:** spec §10 lists routes without a step for the setup flow's "initial recognition → correction", and E3-T08 needs a screen.
+- **Decision:** add the lazy route `/recognition` (setup step 3), linked from the calibration page. The vision worker is scoped to that route, like on `/calibration`. The route contract test lists it as a documented addition.
+
+## ADR-025 — Recognition never touches game state; confirmed observation stays local (E3)
+
+- **Decision:** the confirmed (corrected) observation lives in `RecognitionStore` and is not persisted. E6 (initial position validation and game start) will consume it through the game-session controller. The temporal stabilizer is E5, so E3 classifies each frame independently and shows the latest reading.
+
+## ADR-026 — Synthetic evaluation and board-video E2E (E3)
+
+- **Decision:** `tests/fixtures/synthetic-board.ts` renders deterministic boards (lighting, gradients, shadows, noise, jitter, kings, perspective). Accuracy targets from spec §16 (≥ 95 %, zero confident errors) are asserted per scenario. For E2E, `tests/e2e/support/synthetic-video.ts` writes a Y4M video (gitignored, generated in Playwright `globalSetup`) that Chromium plays as the camera (`--use-file-for-fake-video-capture`), in the `chromium-board` project.
+- **Consequence:** the full browser pipeline is tested end to end. Physical accuracy remains to be measured (E8-T02); the correction screen reports per-session agreement to support that.
+
+## ADR-027 — Automatic corner adjustment (after the first real-world test)
+
+- **Context:** the first test on a physical board (blue/cream, tall grooved pieces, oblique camera, 2026-11-19) showed 11 `?` squares, concentrated in the far rows. On screen the far edge is small, and corners placed about 10 px inside the board misalign the far rows by a third of a square. A synthetic reproduction confirmed it: a 10 px inset gives 11 UNKNOWN, a 20 px inset 17, with zero confident errors (safe, but unusable).
+- **Decision:** `vision/calibration-refinement.ts` snaps the user's corners to the square borders by maximizing the luminance contrast across the 18 projected grid lines.
+  - **Objective:** an edge derivative 1.5 px across each line, plus a quarter-square contrast; trimmed mean per line so pieces and shadows crossing a line are ignored.
+  - **Search:** coordinate descent, then basin hopping (0.3-square jumps), at half resolution, followed by a full-resolution polish. Each corner may move at most half a square from the user's handle, so this is refinement, not automatic board detection (still out of scope).
+  - **Protocol:** `REFINE_CALIBRATION` → `CALIBRATION_REFINED`.
+  - **UI:** "Ajustar automaticamente" on `/calibration`; "Reajustar cantos" on `/recognition`, which also saves the adjusted profile.
+- **Measured (synthetic):** recovers ±18 px random corner errors to < 2.5 px, takes ≈ 1–1.5 s per adjustment in Node, and turns the field failure (11 `?`) into 32/32.
+
+## ADR-028 — Per-square diagnostics and labeled real samples
+
+- **Decision:**
+  - `RECOGNITION_RESULT` carries optional per-square diagnostics: reason, foreground fraction and occlusion. The board shows the reason for each `?` or low-confidence square, as a tooltip that is also read aloud.
+  - After confirming a position, **"Baixar amostra rotulada"** exports a JSON with the camera frame (PNG), the calibration in frame pixels, the confirmed position (ground truth), the reading and the diagnostics.
+  - `tests/integration/real-samples.spec.ts` replays every sample registered in `tests/fixtures/real-samples/` through the real worker pipeline. It fails on any confident wrong answer or on a regression below the recorded floor.
+  - A dependency-free PNG codec for tests (`tests/fixtures/png.ts`, web `CompressionStream`) supports the harness.
+- **Consequence:** recognition quality is measured on real boards, not only synthetic ones. Samples contain only the camera image of the board area, and the user decides whether to share them.
+
+## ADR-029 — Playwright worker cap
+
+- **Decision:** `workers: 4` locally and 2 in CI. With 8 parallel browsers each compiling OpenCV.js (17 MB), page navigation timed out under load; with 3–4 workers every run passed (52/52 over two repetitions).

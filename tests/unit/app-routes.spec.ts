@@ -6,10 +6,19 @@ import { routes } from '../../src/app/app.routes';
  */
 describe('Application route contract', () => {
   const REQUIRED_PATHS = ['', 'game/new', 'calibration', 'game/:id', 'games', 'settings'];
+  /** Added beyond spec §10 (ADR-024). */
+  const ADDITIONAL_PATHS = ['recognition'];
 
   it('declares every route required by the specification', () => {
     const paths = routes.map((route) => route.path);
     for (const path of REQUIRED_PATHS) {
+      expect(paths).toContain(path);
+    }
+  });
+
+  it('declares the documented additional setup routes', () => {
+    const paths = routes.map((route) => route.path);
+    for (const path of ADDITIONAL_PATHS) {
       expect(paths).toContain(path);
     }
   });

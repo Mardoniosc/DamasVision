@@ -1,0 +1,291 @@
+<section class="space-y-6" aria-labelledby="recognition-heading">
+  <header class="space-y-2">
+    <p class="text-sm font-medium text-brand-700">Etapa 3 · Reconhecimento</p>
+    <h1 id="recognition-heading" class="text-2xl font-semibold tracking-tight">Reconhecimento</h1>
+    <p class="max-w-prose text-stone-600">
+      O tabuleiro é lido continuamente. Casas com <strong>?</strong> não puderam ser identificadas
+      com segurança. Pause a leitura para corrigir qualquer casa e confirme a posição.
+    </p>
+  </header>
+
+  @switch (store.phase()) {
+    @case ('LOADING') {
+      <p role="status" class="text-sm text-stone-600">Preparando câmera e processamento…</p>
+    }
+    @case ('NO_CALIBRATION') {
+      <div
+        role="alert"
+        class="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm"
+      >
+        <p>Nenhuma calibração salva. Calibre o tabuleiro antes do reconhecimento.</p>
+        <a
+          routerLink="/calibration"
+          class="inline-block rounded-md bg-brand-600 px-3 py-2 font-medium text-white hover:bg-brand-700"
+        >
+          Ir para a calibração
+        </a>
+      </div>
+    }
+    @case ('ERROR') {
+      <div
+        role="alert"
+        class="space-y-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      >
+        <p>{{ store.error() }}</p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-red-300 bg-white px-3 py-1.5 font-medium hover:bg-red-50"
+            (click)="store.start()"
+          >
+            Tentar novamente
+          </button>
+          <a routerLink="/calibration" class="rounded-md px-3 py-1.5 font-medium underline">
+            Refazer a calibração
+          </a>
+        </div>
+      </div>
+    }
+  }
+
+  @if (store.profile()) {
+    <div class="grid gap-6 lg:grid-cols-[3fr_2fr]">
+      <app-recognition-preview
+        [stream]="camera.stream()"
+        [frameSize]="store.frameSize()"
+        [markers]="store.markers()"
+        [lowConfidenceBelow]="acceptable"
+      />
+
+      <div class="space-y-4">
+        <section
+          class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+          aria-labelledby="reading-heading"
+        >
+          <div class="flex items-center justify-between gap-2">
+            <h2 id="reading-heading" class="font-semibold">Leitura</h2>
+            <span
+              role="status"
+              aria-live="polite"
+              class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+              [class]="
+                store.shown()?.status === 'SUCCESS'
+                  ? 'bg-brand-100 text-brand-700'
+                  : 'bg-amber-100 text-amber-800'
+              "
+              data-testid="recognition-status"
+            >
+              {{ statusLabel() }}
+            </span>
+          </div>
+
+          @if (store.cells(); as cells) {
+            <app-board-view
+              [cells]="cells"
+              [confidence]="store.confidence()"
+              [lowConfidenceBelow]="acceptable"
+              [changed]="store.changedSquares()"
+              [selected]="store.selected()"
+              [interactive]="store.phase() === 'CORRECTING'"
+              [notes]="notes()"
+              label="Tabuleiro reconhecido"
+              (squareSelect)="store.selectSquare($event)"
+            />
+          }
+
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt class="text-stone-500">Confiança geral</dt>
+            <dd data-testid="overall-confidence">
+              {{ confidencePercent() === null ? '—' : confidencePercent() + '%' }}
+            </dd>
+            <dt class="text-stone-500">Peças</dt>
+            <dd data-testid="piece-counts">
+              {{ store.pieceCounts().white }} brancas · {{ store.pieceCounts().black }} pretas
+            </dd>
+            <dt class="text-stone-500">Casas incertas</dt>
+            <dd data-testid="unknown-count">{{ store.unknownCount() }}</dd>
+            <dt class="text-stone-500">Quadros analisados</dt>
+            <dd>{{ store.framesProcessed() }}</dd>
+          </dl>
+
+          @if (store.phase() === 'RECOGNIZING') {
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+                [disabled]="store.realignState().status === 'WORKING'"
+                (click)="store.realign()"
+              >
+                Reajustar cantos
+              </button>
+              @switch (store.realignState().status) {
+                @case ('WORKING') {
+                  <span role="status" class="text-sm text-stone-600">Reajustando…</span>
+                }
+              }
+              @if (store.realignState(); as realign) {
+                @if (realign.status === 'DONE') {
+                  <span role="status" class="text-sm text-brand-700" data-testid="realign-status">
+                    Calibração reajustada ({{ realign.shiftPx }} px) e salva.
+                  </span>
+                }
+                @if (realign.status === 'ERROR') {
+                  <span role="alert" class="text-sm text-red-800">{{ realign.message }}</span>
+                }
+              }
+            </div>
+            @if (store.unknownCount() >= 4) {
+              <p class="text-xs text-stone-500">
+                Muitas casas com ? costumam indicar cantos desalinhados: use
+                <strong>Reajustar cantos</strong>.
+              </p>
+            }
+          }
+
+          @if (store.shown()?.warnings; as warnings) {
+            @if (warnings.length > 0 && store.phase() === 'RECOGNIZING') {
+              <ul
+                class="list-disc space-y-1 pl-5 text-sm text-amber-800"
+                data-testid="recognition-warnings"
+              >
+                @for (warning of warnings; track warning.code) {
+                  <li>{{ warning.message }}</li>
+                }
+              </ul>
+            }
+          }
+        </section>
+
+        <section
+          class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+          aria-labelledby="correction-heading"
+        >
+          <h2 id="correction-heading" class="font-semibold">Correção</h2>
+
+          @switch (store.phase()) {
+            @case ('RECOGNIZING') {
+              <button
+                type="button"
+                class="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                [disabled]="!store.latest()"
+                (click)="store.pauseForCorrection()"
+              >
+                Pausar e corrigir
+              </button>
+            }
+            @case ('CORRECTING') {
+              <p class="text-sm text-stone-600">
+                Selecione uma casa no tabuleiro e escolha o conteúdo correto.
+              </p>
+              @if (selectedName(); as name) {
+                <fieldset class="space-y-2">
+                  <legend class="text-sm font-medium">Casa {{ name }}</legend>
+                  <div class="flex flex-wrap gap-2">
+                    @for (option of pieceOptions; track option.piece) {
+                      <button
+                        type="button"
+                        class="rounded-md border px-2.5 py-1.5 text-sm"
+                        [class]="
+                          selectedPiece() === option.piece
+                            ? 'border-brand-600 bg-brand-50 font-medium text-brand-700'
+                            : 'border-stone-300 bg-white hover:bg-stone-50'
+                        "
+                        [attr.aria-pressed]="selectedPiece() === option.piece"
+                        (click)="store.setSelectedPiece(option.piece)"
+                      >
+                        {{ option.label }}
+                      </button>
+                    }
+                  </div>
+                </fieldset>
+              }
+              @if (store.metrics(); as metrics) {
+                <p class="text-sm text-stone-600" data-testid="correction-metrics">
+                  Leitura automática: {{ metrics.matched }} de {{ metrics.total }} casas corretas
+                  ({{ metricsPercent() }}%) · {{ metrics.corrected }} corrigida(s)
+                </p>
+              }
+              @if (store.unknownCount() > 0) {
+                <p class="text-sm text-amber-800">
+                  Corrija as {{ store.unknownCount() }} casa(s) marcadas com ? para confirmar.
+                </p>
+              }
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                  [disabled]="!store.canConfirm()"
+                  (click)="store.confirm()"
+                >
+                  Confirmar posição
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+                  [disabled]="store.changedSquares().length === 0"
+                  (click)="store.undoCorrections()"
+                >
+                  Desfazer correções
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50"
+                  (click)="store.resume()"
+                >
+                  Retomar leitura
+                </button>
+              </div>
+            }
+            @case ('CONFIRMED') {
+              <p role="status" class="text-sm text-brand-700" data-testid="confirmed">
+                Posição confirmada: {{ store.pieceCounts().white }} brancas e
+                {{ store.pieceCounts().black }} pretas. Ela será usada para iniciar a partida.
+              </p>
+              @if (store.metrics(); as metrics) {
+                <p class="text-sm text-stone-600" data-testid="correction-metrics">
+                  Leitura automática: {{ metrics.matched }} de {{ metrics.total }} casas corretas
+                  ({{ metricsPercent() }}%) · {{ metrics.corrected }} corrigida(s)
+                </p>
+              }
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50"
+                  (click)="store.resume()"
+                >
+                  Refazer a leitura
+                </button>
+                <button
+                  type="button"
+                  class="rounded-md border border-brand-600 bg-white px-3 py-2 text-sm font-medium text-brand-700 hover:bg-brand-50 disabled:opacity-50"
+                  [disabled]="exportState().status === 'WORKING'"
+                  (click)="exportSample()"
+                >
+                  Baixar amostra rotulada
+                </button>
+              </div>
+              <p class="text-xs text-stone-500">
+                A amostra (imagem da câmera + posição confirmada) permite medir e ajustar o
+                reconhecimento com o seu tabuleiro real. Ela fica só neste dispositivo até você
+                enviá-la.
+              </p>
+              @if (exportState(); as state) {
+                @if (state.status === 'DONE') {
+                  <p role="status" class="text-sm text-brand-700" data-testid="export-status">
+                    Amostra baixada.
+                  </p>
+                }
+                @if (state.status === 'ERROR') {
+                  <p role="alert" class="text-sm text-red-800">{{ state.message }}</p>
+                }
+              }
+            }
+            @default {
+              <p class="text-sm text-stone-500">A correção fica disponível durante a leitura.</p>
+            }
+          }
+        </section>
+      </div>
+    </div>
+  }
+</section>

@@ -1,11 +1,12 @@
 import { CalibrationCorners, CalibrationIssue, CORNER_NAMES } from '../../domain/board/calibration';
 import { Homography } from '../../domain/board/homography';
+import { BoardRecognitionResult, isBoardObservation } from '../../domain/board/observation';
+import { isObservedPiece } from '../../domain/board/piece';
 import { VisionConfig } from '../../vision/vision.config';
 
 /**
- * Vision worker protocol (docs/execution-specification.md §9), as implemented in E2.
- * `PROCESS_FRAME` / `RECOGNITION_RESULT` are added with recognition in E3.
- * `RECTIFY_FRAME` / `RECTIFIED_FRAME` and `ERROR.requestType` are extensions (ADR-016).
+ * Vision worker protocol (docs/execution-specification.md §9).
+ * `RECTIFY_FRAME` / `RECTIFIED_FRAME` and `ERROR.requestType` are extensions (ADR-018).
  */
 export type VisionWorkerRequest =
   | { readonly type: 'INIT'; readonly config: VisionConfig }
@@ -17,8 +18,26 @@ export type VisionWorkerRequest =
       readonly height: number;
     }
   | { readonly type: 'RECTIFY_FRAME'; readonly frame: ImageBitmap; readonly frameId: string }
+  | { readonly type: 'PROCESS_FRAME'; readonly frame: ImageBitmap; readonly frameId: string }
+  | {
+      /** Extension (ADR-027): snap canonical corners to the square borders in `frame`. */
+      readonly type: 'REFINE_CALIBRATION';
+      readonly corners: CalibrationCorners;
+      readonly frame: ImageBitmap;
+      readonly frameId: string;
+    }
   | { readonly type: 'RESET' }
   | { readonly type: 'DISPOSE' };
+
+/** Why a square got its confidence (the weakest decision); for UI hints and samples. */
+export type SquareReason = 'OCCLUSION' | 'BOARD_CONTRAST' | 'PRESENCE' | 'COLOR' | 'KING' | 'NONE';
+
+export interface SquareDiagnostic {
+  readonly squareIndex: number;
+  readonly reason: SquareReason;
+  readonly foregroundRatio: number;
+  readonly occluded: boolean;
+}
 
 export interface CalibrationResult {
   readonly valid: boolean;
@@ -35,12 +54,29 @@ export type VisionWorkerErrorCode =
   | 'NOT_INITIALIZED'
   | 'NOT_CALIBRATED'
   | 'CALIBRATION_FAILED'
-  | 'RECTIFY_FAILED';
+  | 'RECTIFY_FAILED'
+  | 'RECOGNITION_FAILED'
+  | 'REFINE_FAILED';
 
 export type VisionWorkerResponse =
   | { readonly type: 'READY' }
   | { readonly type: 'CALIBRATION_RESULT'; readonly result: CalibrationResult }
   | { readonly type: 'RECTIFIED_FRAME'; readonly frameId: string; readonly image: ImageBitmap }
+  | {
+      readonly type: 'CALIBRATION_REFINED';
+      readonly frameId: string;
+      readonly corners: CalibrationCorners;
+      readonly scoreBefore: number;
+      readonly scoreAfter: number;
+      readonly maxShiftPx: number;
+    }
+  | {
+      readonly type: 'RECOGNITION_RESULT';
+      readonly result: BoardRecognitionResult;
+      readonly frameId: string;
+      /** Extension (ADR-028): per playable square diagnostics. */
+      readonly diagnostics?: readonly SquareDiagnostic[];
+    }
   | {
       readonly type: 'ERROR';
       readonly code: VisionWorkerErrorCode;
@@ -91,6 +127,62 @@ export function isHomography(value: unknown): value is Homography {
   return Array.isArray(value) && value.length === 9 && value.every(isFiniteNumber);
 }
 
+const RECOGNITION_STATUSES = ['SUCCESS', 'UNCERTAIN', 'ERROR'];
+
+export function isBoardRecognitionResult(value: unknown): value is BoardRecognitionResult {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const squares = value['squares'];
+  const warnings = value['warnings'];
+  return (
+    isBoardObservation(value['board']) &&
+    Array.isArray(squares) &&
+    squares.every(
+      (square) =>
+        isRecord(square) &&
+        isFiniteNumber(square['squareIndex']) &&
+        isObservedPiece(square['piece']) &&
+        isFiniteNumber(square['confidence']),
+    ) &&
+    typeof value['status'] === 'string' &&
+    RECOGNITION_STATUSES.includes(value['status']) &&
+    isFiniteNumber(value['overallConfidence']) &&
+    Array.isArray(warnings) &&
+    warnings.every(
+      (warning) =>
+        isRecord(warning) &&
+        typeof warning['code'] === 'string' &&
+        typeof warning['message'] === 'string',
+    ) &&
+    isFiniteNumber(value['timestamp'])
+  );
+}
+
+const SQUARE_REASONS: readonly string[] = [
+  'OCCLUSION',
+  'BOARD_CONTRAST',
+  'PRESENCE',
+  'COLOR',
+  'KING',
+  'NONE',
+];
+
+export function isSquareDiagnostics(value: unknown): value is readonly SquareDiagnostic[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        isFiniteNumber(item['squareIndex']) &&
+        typeof item['reason'] === 'string' &&
+        SQUARE_REASONS.includes(item['reason']) &&
+        isFiniteNumber(item['foregroundRatio']) &&
+        typeof item['occluded'] === 'boolean',
+    )
+  );
+}
+
 export function isVisionWorkerResponse(value: unknown): value is VisionWorkerResponse {
   if (!isRecord(value)) {
     return false;
@@ -111,6 +203,20 @@ export function isVisionWorkerResponse(value: unknown): value is VisionWorkerRes
     }
     case 'RECTIFIED_FRAME':
       return isNonEmptyString(value['frameId']) && isBitmapLike(value['image']);
+    case 'CALIBRATION_REFINED':
+      return (
+        isNonEmptyString(value['frameId']) &&
+        isCalibrationCorners(value['corners']) &&
+        isFiniteNumber(value['scoreBefore']) &&
+        isFiniteNumber(value['scoreAfter']) &&
+        isFiniteNumber(value['maxShiftPx'])
+      );
+    case 'RECOGNITION_RESULT':
+      return (
+        isNonEmptyString(value['frameId']) &&
+        isBoardRecognitionResult(value['result']) &&
+        (value['diagnostics'] === undefined || isSquareDiagnostics(value['diagnostics']))
+      );
     case 'ERROR':
       return typeof value['code'] === 'string' && typeof value['message'] === 'string';
     default:

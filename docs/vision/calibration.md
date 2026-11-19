@@ -17,8 +17,9 @@ Defined in `src/app/domain/board/board.ts`:
 2. Four handles start as a centered square. The user drags them — or focuses one with Tab and moves it with the arrow keys (Shift = 10 px) — onto the outer corners of the playing area.
 3. While the quad is valid, the projected 8 × 8 grid, green dots on the 32 playable squares and the **Brancas/Pretas** side labels are drawn over the live image.
 4. **Girar 90°** cycles the orientation until the dots sit on the dark squares and _Brancas_ is on White's side.
-5. **Gerar imagem normalizada** captures one frame, sends it to the vision worker, which warps it with OpenCV.js into an 800 × 800 image shown with the canonical grid, playable squares and their regions of interest (ROI).
-6. **Salvar calibração** stores the profile in IndexedDB and marks it active; it is restored automatically next time.
+5. **Ajustar automaticamente** snaps the handles to the actual square borders (ADR-027). Place the handles roughly on the corners first: each corner moves at most half a square. This matters most on the far edge, where the squares are small on screen.
+6. **Gerar imagem normalizada** captures one frame, sends it to the vision worker, which warps it with OpenCV.js into an 800 × 800 image shown with the canonical grid, playable squares and their regions of interest (ROI).
+7. **Salvar calibração** stores the profile in IndexedDB and marks it active; it is restored automatically next time.
 
 ## Orientation
 

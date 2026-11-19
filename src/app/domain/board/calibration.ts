@@ -75,6 +75,18 @@ export function canonicalCorners(
   );
 }
 
+/** Inverse of {@link canonicalCorners}: canonical corners back to screen order. */
+export function imageCornersFromCanonical(
+  canonical: CalibrationCorners,
+  orientation: CalibrationOrientation,
+): CalibrationCorners {
+  const steps = ORIENTATIONS.indexOf(orientation);
+  const points = cornersToArray(canonical);
+  return cornersFromArray(
+    [0, 1, 2, 3].map((i) => points[(i - steps + 4) % 4]) as unknown as QuadPoints,
+  );
+}
+
 export function scaleCorners(
   corners: CalibrationCorners,
   from: Size2D,

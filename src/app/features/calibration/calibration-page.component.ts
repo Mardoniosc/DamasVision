@@ -1,4 +1,5 @@
 import { Component, computed, DestroyRef, inject } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { CameraService } from '../../core/camera/camera.service';
 import { VisionWorkerClient } from '../../core/workers/vision-worker.client';
 import { ORIENTATION_LABELS } from './calibration-messages';
@@ -15,7 +16,7 @@ import { NormalizedBoardComponent } from './normalized-board.component';
  */
 @Component({
   selector: 'app-calibration-page',
-  imports: [CornerEditorComponent, NormalizedBoardComponent],
+  imports: [CornerEditorComponent, NormalizedBoardComponent, RouterLink],
   providers: [CalibrationStore, VisionWorkerClient],
   templateUrl: './calibration-page.component.html',
 })
@@ -40,6 +41,10 @@ export class CalibrationPageComponent {
         return null;
     }
   });
+  protected readonly canAdjust = computed(
+    () =>
+      this.store.isValid() && this.camera.isStreaming() && this.store.adjust().status !== 'WORKING',
+  );
   protected readonly canGenerate = computed(
     () =>
       this.store.isValid() &&

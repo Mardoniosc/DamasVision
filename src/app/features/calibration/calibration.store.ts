@@ -20,6 +20,7 @@ import {
   clampPoint,
   CornerName,
   defaultCorners,
+  imageCornersFromCanonical,
   nextOrientation,
   scaleCorners,
   validateCalibrationCorners,
@@ -31,6 +32,12 @@ export type PreviewState =
   | { readonly status: 'IDLE' }
   | { readonly status: 'WORKING' }
   | { readonly status: 'READY'; readonly image: ImageBitmap }
+  | { readonly status: 'ERROR'; readonly message: string };
+
+export type AdjustState =
+  | { readonly status: 'IDLE' }
+  | { readonly status: 'WORKING' }
+  | { readonly status: 'DONE'; readonly shiftPx: number; readonly gainPercent: number }
   | { readonly status: 'ERROR'; readonly message: string };
 
 export type SaveState =
@@ -65,6 +72,7 @@ export class CalibrationStore {
   private readonly saveState = signal<SaveState>({ status: 'IDLE' });
   private readonly savedProfileState = signal<PersistedCalibration | null>(null);
   private readonly loadErrorState = signal<string | null>(null);
+  private readonly adjustState = signal<AdjustState>({ status: 'IDLE' });
 
   readonly sourceSize = this.sourceSizeState.asReadonly();
   readonly corners = this.cornersState.asReadonly();
@@ -73,6 +81,7 @@ export class CalibrationStore {
   readonly save = this.saveState.asReadonly();
   readonly savedProfile = this.savedProfileState.asReadonly();
   readonly loadError = this.loadErrorState.asReadonly();
+  readonly adjust = this.adjustState.asReadonly();
 
   readonly validation = computed(() => {
     const corners = this.cornersState();
@@ -170,6 +179,46 @@ export class CalibrationStore {
   }
 
   /** Captures a frame and asks the vision worker for the normalized board image. */
+  /**
+   * Snaps the corners to the square borders seen by the camera (ADR-027). The search
+   * stays within half a square of the handles, so place them roughly first.
+   */
+  async autoAdjust(): Promise<void> {
+    const canonical = this.canonical();
+    const size = this.sourceSizeState();
+    if (!canonical || !size || !this.isValid()) {
+      return;
+    }
+    const version = this.editVersion;
+    this.adjustState.set({ status: 'WORKING' });
+    try {
+      const frame = await this.capture.captureSnapshot();
+      const frameSize = { width: frame.width, height: frame.height };
+      const result = await this.worker.refine(scaleCorners(canonical, size, frameSize), frame);
+      if (version !== this.editVersion) {
+        this.adjustState.set({ status: 'IDLE' });
+        return;
+      }
+      const corners = scaleCorners(
+        imageCornersFromCanonical(result.corners, this.orientationState()),
+        frameSize,
+        size,
+      );
+      this.cornersState.set(corners);
+      this.markEdited();
+      this.adjustState.set({
+        status: 'DONE',
+        shiftPx: Math.round(result.maxShiftPx * (size.width / frameSize.width)),
+        gainPercent:
+          result.scoreBefore > 0
+            ? Math.round((result.scoreAfter / result.scoreBefore - 1) * 100)
+            : 0,
+      });
+    } catch (error) {
+      this.adjustState.set({ status: 'ERROR', message: previewErrorMessage(error) });
+    }
+  }
+
   async generatePreview(): Promise<void> {
     const canonical = this.canonical();
     const size = this.sourceSizeState();
@@ -265,6 +314,9 @@ export class CalibrationStore {
   private markEdited(): void {
     this.editVersion++;
     this.replacePreview({ status: 'IDLE' });
+    if (this.adjustState().status !== 'WORKING') {
+      this.adjustState.set({ status: 'IDLE' });
+    }
     if (this.saveState().status !== 'SAVING') {
       this.saveState.set({ status: 'IDLE' });
     }

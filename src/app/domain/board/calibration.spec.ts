@@ -3,6 +3,7 @@ import {
   canonicalCorners,
   clampPoint,
   defaultCorners,
+  imageCornersFromCanonical,
   nextOrientation,
   scaleCorners,
   validateCalibrationCorners,
@@ -121,6 +122,14 @@ describe('calibration corners', () => {
       });
       expect(canonicalCorners(GOOD, 'ROTATED_180').topLeft).toEqual(GOOD.bottomRight);
       expect(canonicalCorners(GOOD, 'ROTATED_270').topLeft).toEqual(GOOD.bottomLeft);
+    });
+
+    it('maps canonical corners back to screen order for every orientation', () => {
+      for (const orientation of ['NORMAL', 'ROTATED_90', 'ROTATED_180', 'ROTATED_270'] as const) {
+        expect(imageCornersFromCanonical(canonicalCorners(GOOD, orientation), orientation)).toEqual(
+          GOOD,
+        );
+      }
     });
 
     it('keeps a valid quad valid in every orientation', () => {

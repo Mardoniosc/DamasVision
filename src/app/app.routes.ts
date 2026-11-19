@@ -39,6 +39,15 @@ export const routes: Routes = [
       ),
   },
   {
+    // Setup step 3 (E3). Not in the spec §10 route list; see ADR-024.
+    path: 'recognition',
+    title: pageTitle('Reconhecimento'),
+    loadComponent: () =>
+      import('./features/recognition/recognition-page.component').then(
+        (m) => m.RecognitionPageComponent,
+      ),
+  },
+  {
     path: 'games',
     title: pageTitle('Partidas'),
     loadComponent: () =>

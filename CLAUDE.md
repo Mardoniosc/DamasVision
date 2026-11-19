@@ -94,7 +94,8 @@ If a rule blocks legitimate work, raise it instead of disabling it inline.
 
 ## Current status
 
-- G0 and G1 approved (2026-11-19).
-- E2 — Calibration implemented. **Gate G2 awaiting approval.** Do not start E3 (recognition) or any later epic until the user approves G2.
-- Test doubles live in `tests/fixtures/`: `FakeMediaDevices`, `FakeFrameSource`, `FakeVisionWorker`, `InMemoryCalibrationRepository`. Specs that need OpenCV load the real bundled build. E2E uses Chromium's synthetic camera (`playwright.config.ts`) and `tests/e2e/support/media-probe.ts`; assert "no live tracks" after every lifecycle change.
+- G0, G1 and G2 approved (2026-11-19).
+- E3 — Recognition implemented. **Gate G3 awaiting approval.** Do not start E4 (engine) or any later epic until the user approves G3.
+- Recognition must never produce a confident wrong answer: any classifier change must keep `tests/integration/recognition-accuracy.spec.ts` and `recognition-pipeline.spec.ts` at zero confident errors; add a scenario for every new failure mode found.
+- Test doubles live in `tests/fixtures/`: `FakeMediaDevices`, `FakeFrameSource`, `FakeVisionWorker`, `InMemoryCalibrationRepository`, `synthetic-board.ts` (deterministic board renderer + `scoreRecognition`), `recognition-results.ts`. Specs that need OpenCV load the real bundled build. E2E uses Chromium's synthetic camera (`playwright.config.ts`; project `chromium-board` plays a generated board video for `*recognition.spec.ts`) and `tests/e2e/support/media-probe.ts`; assert "no live tracks" after every lifecycle change.
 - Backlog and gate status: `docs/backlog/implementation-backlog.md`.

@@ -3,6 +3,15 @@ import { Size2D } from '../../domain/board/geometry';
 import { Homography } from '../../domain/board/homography';
 import { OpenCv } from '../../vision/opencv-loader';
 import { computePerspectiveTransform, RgbaImage, warpPerspective } from '../../vision/perspective';
+import {
+  ClassifierConfig,
+  ClassifierConfigError,
+  resolveClassifierConfig,
+} from '../../vision/recognition/classifier.config';
+import { refineCorners, toGray } from '../../vision/calibration-refinement';
+import { denoise } from '../../vision/recognition/denoise';
+import { measureFrameQuality, qualityWarnings } from '../../vision/recognition/frame-quality';
+import { recognizeBoard } from '../../vision/recognition/recognize-board';
 import { isVisionConfig, VisionConfig } from '../../vision/vision.config';
 import {
   isBitmapLike,
@@ -21,6 +30,8 @@ export interface VisionWorkerHandlerDependencies {
   /** Reads the pixels of a bitmap. Does not close it. */
   readonly readBitmap: (bitmap: ImageBitmap) => RgbaImage;
   readonly createBitmap: (image: RgbaImage) => Promise<ImageBitmap>;
+  /** Wall-clock time for result timestamps (defaults to `Date.now`). */
+  readonly now?: () => number;
 }
 
 interface ActiveCalibration {
@@ -36,6 +47,8 @@ export function createVisionWorkerHandler(
   deps: VisionWorkerHandlerDependencies,
 ): (message: unknown) => Promise<void> {
   let config: VisionConfig | null = null;
+  let classifier: ClassifierConfig | null = null;
+  const now = deps.now ?? (() => Date.now());
   let cv: OpenCv | null = null;
   let calibration: ActiveCalibration | null = null;
 
@@ -58,9 +71,19 @@ export function createVisionWorkerHandler(
       fail('INVALID_REQUEST', 'INIT requires a valid VisionConfig', { type: 'INIT' });
       return;
     }
+    let resolved: ClassifierConfig;
+    try {
+      resolved = resolveClassifierConfig(message['config']);
+    } catch (error) {
+      const reason =
+        error instanceof ClassifierConfigError ? error.message : 'invalid classifier config';
+      fail('INVALID_REQUEST', `INIT: ${reason}`, { type: 'INIT' });
+      return;
+    }
     try {
       cv = await deps.loadOpenCv();
       config = message['config'];
+      classifier = resolved;
       calibration = null;
       deps.post({ type: 'READY' });
     } catch (error) {
@@ -115,38 +138,104 @@ export function createVisionWorkerHandler(
     }
   };
 
-  const handleRectify = async (message: Record<string, unknown>): Promise<void> => {
+  /**
+   * Shared path for frame requests: validates the payload, requires a calibration,
+   * warps the frame, and always closes the received bitmap.
+   */
+  const handleFrame = async (
+    type: 'RECTIFY_FRAME' | 'PROCESS_FRAME',
+    message: Record<string, unknown>,
+    use: (rectified: RgbaImage, frameId: string, cv: OpenCv) => Promise<void>,
+  ): Promise<void> => {
     const frame = message['frame'];
     const frameId = message['frameId'];
-    const request = {
-      type: 'RECTIFY_FRAME',
-      frameId: isNonEmptyString(frameId) ? frameId : undefined,
-    };
+    const request = { type, frameId: isNonEmptyString(frameId) ? frameId : undefined };
     try {
       if (!isBitmapLike(frame) || !isNonEmptyString(frameId)) {
-        fail('INVALID_REQUEST', 'RECTIFY_FRAME requires a frame bitmap and frameId', request);
+        fail('INVALID_REQUEST', `${type} requires a frame bitmap and frameId`, request);
         return;
       }
       if (!cv || !calibration) {
-        fail(
-          cv ? 'NOT_CALIBRATED' : 'NOT_INITIALIZED',
-          'Calibrate before rectifying frames',
-          request,
-        );
+        fail(cv ? 'NOT_CALIBRATED' : 'NOT_INITIALIZED', 'Calibrate before sending frames', request);
         return;
       }
       const pixels = deps.readBitmap(frame);
       const rectified = warpPerspective(cv, pixels, calibration.transform, calibration.size);
-      const image = await deps.createBitmap(rectified);
-      deps.post({ type: 'RECTIFIED_FRAME', frameId, image }, [image]);
+      await use(rectified, frameId, cv);
     } catch (error) {
-      fail('RECTIFY_FAILED', describe(error, 'Rectification failed'), request);
+      fail(
+        type === 'RECTIFY_FRAME' ? 'RECTIFY_FAILED' : 'RECOGNITION_FAILED',
+        describe(error, `${type} failed`),
+        request,
+      );
     } finally {
       if (isBitmapLike(frame)) {
         frame.close();
       }
     }
   };
+
+  const handleRefine = async (message: Record<string, unknown>): Promise<void> => {
+    const frame = message['frame'];
+    const frameId = message['frameId'];
+    const corners = message['corners'];
+    const request = {
+      type: 'REFINE_CALIBRATION',
+      frameId: isNonEmptyString(frameId) ? frameId : undefined,
+    };
+    try {
+      if (!isBitmapLike(frame) || !isNonEmptyString(frameId) || !isCalibrationCorners(corners)) {
+        fail(
+          'INVALID_REQUEST',
+          'REFINE_CALIBRATION requires corners, a frame bitmap and frameId',
+          request,
+        );
+        return;
+      }
+      if (!config) {
+        fail('NOT_INITIALIZED', 'Worker is not initialized', request);
+        return;
+      }
+      const result = refineCorners(toGray(deps.readBitmap(frame)), corners);
+      deps.post({ type: 'CALIBRATION_REFINED', frameId, ...result });
+    } catch (error) {
+      fail('REFINE_FAILED', describe(error, 'Calibration refinement failed'), request);
+    } finally {
+      if (isBitmapLike(frame)) {
+        frame.close();
+      }
+    }
+  };
+
+  const handleRectify = (message: Record<string, unknown>): Promise<void> =>
+    handleFrame('RECTIFY_FRAME', message, async (rectified, frameId) => {
+      const image = await deps.createBitmap(rectified);
+      deps.post({ type: 'RECTIFIED_FRAME', frameId, image }, [image]);
+    });
+
+  const handleProcess = (message: Record<string, unknown>): Promise<void> =>
+    handleFrame('PROCESS_FRAME', message, async (rectified, frameId, opencv) => {
+      const thresholds = classifier as ClassifierConfig;
+      // Sharpness is measured on the raw rectified image, before smoothing.
+      const quality = measureFrameQuality(opencv, rectified);
+      const smoothed = denoise(opencv, rectified, thresholds.shape.denoiseKernelSize);
+      const { result, diagnostics } = recognizeBoard(smoothed, thresholds, {
+        timestamp: now(),
+        frameId,
+        qualityWarnings: qualityWarnings(quality, thresholds.color, thresholds.shape),
+      });
+      deps.post({
+        type: 'RECOGNITION_RESULT',
+        result,
+        frameId,
+        diagnostics: diagnostics.map((d) => ({
+          squareIndex: d.features.index,
+          reason: d.classification.limitedBy,
+          foregroundRatio: Math.round(d.features.foregroundRatio * 1000) / 1000,
+          occluded: d.occluded,
+        })),
+      });
+    });
 
   return async (message: unknown): Promise<void> => {
     if (!isVisionWorkerRequestShape(message)) {
@@ -161,12 +250,17 @@ export function createVisionWorkerHandler(
         return handleCalibrate(request);
       case 'RECTIFY_FRAME':
         return handleRectify(request);
+      case 'PROCESS_FRAME':
+        return handleProcess(request);
+      case 'REFINE_CALIBRATION':
+        return handleRefine(request);
       case 'RESET':
         calibration = null;
         return;
       case 'DISPOSE':
         calibration = null;
         config = null;
+        classifier = null;
         cv = null;
         return;
       default:

@@ -4,17 +4,17 @@ Summary of `docs/execution-specification.md` §3–§4 as implemented so far. Th
 
 ## Layers
 
-| Layer         | Path                         | Responsibility                                     | Status                                            |
-| ------------- | ---------------------------- | -------------------------------------------------- | ------------------------------------------------- |
-| Presentation  | `src/app/features/**`        | Routed pages, overlays, status, controls           | Setup (E1), calibration (E2); others placeholders |
-| Shared UI     | `src/app/shared/**`          | Reusable presentational components                 | `PagePlaceholder`, `MediaStreamDirective`         |
-| Camera        | `src/app/core/camera`        | Devices, permissions, stream lifecycle             | Done (E1)                                         |
-| Frame capture | `src/app/core/frame-capture` | Scheduling, backpressure, stale-frame dropping     | Done (E1)                                         |
-| Workers       | `src/app/core/workers`       | Vision worker protocol, entry/handler and client   | Calibration + rectification (E2)                  |
-| Vision        | `src/app/vision`             | Worker-side pipeline: OpenCV loader, perspective   | Perspective (E2); recognition in E3               |
-| Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Calibrations (E2); rest in E7                     |
-| App state     | `src/app/core/app-state`     | Session controller / state machine                 | Empty (E6)                                        |
-| Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Board geometry/calibration (E2); engine E4        |
+| Layer         | Path                         | Responsibility                                     | Status                                                              |
+| ------------- | ---------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- |
+| Presentation  | `src/app/features/**`        | Routed pages, overlays, status, controls           | Setup (E1), calibration (E2), recognition (E3); others placeholders |
+| Shared UI     | `src/app/shared/**`          | Reusable presentational components                 | `PagePlaceholder`, `BoardView`, `MediaStreamDirective`              |
+| Camera        | `src/app/core/camera`        | Devices, permissions, stream lifecycle             | Done (E1)                                                           |
+| Frame capture | `src/app/core/frame-capture` | Scheduling, backpressure, stale-frame dropping     | Done (E1)                                                           |
+| Workers       | `src/app/core/workers`       | Vision worker protocol, entry/handler and client   | Calibration, rectification (E2), recognition (E3)                   |
+| Vision        | `src/app/vision`             | Worker-side pipeline: OpenCV loader, perspective   | Perspective (E2), recognition (E3)                                  |
+| Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Calibrations (E2); rest in E7                                       |
+| App state     | `src/app/core/app-state`     | Session controller / state machine                 | Empty (E6)                                                          |
+| Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Board geometry, calibration (E2), observations (E3); engine E4      |
 
 Dependency direction: `features → core → domain`, `features → shared`, `features → domain`, `core/workers → vision → domain`. `domain` depends on nothing. `shared` depends on neither `features` nor `core`. These rules are enforced by ESLint (see ADR-006).
 
@@ -75,6 +75,14 @@ flowchart LR
 
 - The client is provided by the calibration page, so the worker is terminated on leaving the route.
 - The live overlay uses the pure-TS homography, and pixels are warped only in the worker.
+
+## Recognition (E3)
+
+Details and measurements: `docs/vision/recognition.md`.
+
+- `RecognitionStore` (route-scoped) starts `FrameCaptureService` with a processor that sends each frame to the worker (`PROCESS_FRAME`). The worker warps the frame, measures its quality, denoises it and classifies it, then answers `RECOGNITION_RESULT`.
+- The store keeps the latest result, freezes it for correction, applies corrections (`domain/board/observation.ts`) and confirms. It never touches game state.
+- `shared/components/board-view` renders any observation (UNKNOWN, confidence, corrected squares) and will be reused by the live game.
 
 ## Runtime principles (from spec)
 

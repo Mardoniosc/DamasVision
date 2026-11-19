@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { FakeFrameSource } from '../../../../tests/fixtures/fake-frames';
 import { FakeMediaDevices } from '../../../../tests/fixtures/fake-media-devices';
 import { FakeVisionWorker, happyPathReply } from '../../../../tests/fixtures/fake-vision-worker';
@@ -25,6 +26,7 @@ describe('CalibrationPageComponent (E2)', () => {
     TestBed.configureTestingModule({
       imports: [CalibrationPageComponent],
       providers: [
+        provideRouter([]),
         {
           provide: CAMERA_ENVIRONMENT,
           useValue: { mediaDevices: devices.asMediaDevices(), isSecureContext: true },

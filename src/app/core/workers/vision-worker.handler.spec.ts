@@ -180,4 +180,86 @@ describe('vision worker handler', () => {
 
     expect(last()).toMatchObject({ type: 'ERROR', code: 'NOT_CALIBRATED' });
   });
+
+  describe('PROCESS_FRAME (E3)', () => {
+    it('refuses to process before calibration and closes the bitmap', async () => {
+      const { handle, last } = setup();
+      await handle({ type: 'INIT', config: CONFIG });
+      const bitmap = frame();
+
+      await handle({ type: 'PROCESS_FRAME', frame: bitmap, frameId: 'p1' });
+
+      expect(last()).toMatchObject({
+        type: 'ERROR',
+        code: 'NOT_CALIBRATED',
+        frameId: 'p1',
+        requestType: 'PROCESS_FRAME',
+      });
+      expect(bitmap.closed).toBe(true);
+    });
+
+    it('returns a recognition result for the frame and closes the bitmap', async () => {
+      const { handle, last } = setup();
+      await handle({ type: 'INIT', config: CONFIG });
+      await handle({ type: 'CALIBRATE', corners: CORNERS, ...SOURCE });
+      const bitmap = frame();
+
+      await handle({ type: 'PROCESS_FRAME', frame: bitmap, frameId: 'p2' });
+
+      const response = last();
+      expect(response).toMatchObject({ type: 'RECOGNITION_RESULT', frameId: 'p2' });
+      if (response?.type === 'RECOGNITION_RESULT') {
+        expect(response.result.board.cells).toHaveLength(64);
+        expect(response.result.squares).toHaveLength(32);
+      }
+      expect(bitmap.closed).toBe(true);
+    });
+
+    it('rejects an invalid classifier configuration at INIT', async () => {
+      const { handle, last } = setup();
+
+      await handle({
+        type: 'INIT',
+        config: {
+          ...CONFIG,
+          classifier: { colorThresholds: { unknownKey: 1 }, shapeThresholds: {} },
+        },
+      });
+
+      expect(last()).toMatchObject({ type: 'ERROR', code: 'INVALID_REQUEST', requestType: 'INIT' });
+      expect(last()).toMatchObject({ message: expect.stringContaining('unknownKey') });
+    });
+  });
+
+  describe('REFINE_CALIBRATION', () => {
+    it('requires INIT and closes the bitmap', async () => {
+      const { handle, last } = setup();
+      const bitmap = frame();
+
+      await handle({ type: 'REFINE_CALIBRATION', corners: CORNERS, frame: bitmap, frameId: 'r1' });
+
+      expect(last()).toMatchObject({ type: 'ERROR', code: 'NOT_INITIALIZED', frameId: 'r1' });
+      expect(bitmap.closed).toBe(true);
+    });
+
+    it('answers CALIBRATION_REFINED with corners and scores', async () => {
+      const { handle, last } = setup();
+      await handle({ type: 'INIT', config: CONFIG });
+      const bitmap = frame();
+
+      await handle({ type: 'REFINE_CALIBRATION', corners: CORNERS, frame: bitmap, frameId: 'r2' });
+
+      expect(last()).toMatchObject({ type: 'CALIBRATION_REFINED', frameId: 'r2' });
+      expect(bitmap.closed).toBe(true);
+    });
+
+    it('rejects a request without corners', async () => {
+      const { handle, last } = setup();
+      await handle({ type: 'INIT', config: CONFIG });
+
+      await handle({ type: 'REFINE_CALIBRATION', frame: frame(), frameId: 'r3' });
+
+      expect(last()).toMatchObject({ type: 'ERROR', code: 'INVALID_REQUEST' });
+    });
+  });
 });

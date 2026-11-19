@@ -60,6 +60,20 @@ export function happyPathReply(message: VisionWorkerRequest): VisionWorkerRespon
           normalizedHeight: 800,
         },
       };
+    case 'REFINE_CALIBRATION':
+      return {
+        type: 'CALIBRATION_REFINED',
+        frameId: message.frameId,
+        corners: {
+          topLeft: { x: message.corners.topLeft.x + 4, y: message.corners.topLeft.y },
+          topRight: { x: message.corners.topRight.x + 4, y: message.corners.topRight.y },
+          bottomRight: { x: message.corners.bottomRight.x + 4, y: message.corners.bottomRight.y },
+          bottomLeft: { x: message.corners.bottomLeft.x + 4, y: message.corners.bottomLeft.y },
+        },
+        scoreBefore: 40,
+        scoreAfter: 50,
+        maxShiftPx: 4,
+      };
     case 'RECTIFY_FRAME':
       return {
         type: 'RECTIFIED_FRAME',

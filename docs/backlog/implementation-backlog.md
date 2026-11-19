@@ -31,17 +31,30 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | E2-T04 | Perspective transform                                    | DONE                  |
 | E2-T05 | Grid mapper and playable-square overlay                  | DONE                  |
 | E2-T06 | Persist calibration                                      | DONE                  |
-| **G2** | Calibration and geometry validated                       | **AWAITING APPROVAL** |
+| **G2** | Calibration and geometry validated                       | APPROVED (2026-11-19) |
+
+## E3 — Recognition
+
+| Task   | Description                                    | Status                |
+| ------ | ---------------------------------------------- | --------------------- |
+| E3-T01 | Typed configuration                            | DONE                  |
+| E3-T02 | ROI extraction                                 | DONE                  |
+| E3-T03 | Feature extraction                             | DONE                  |
+| E3-T04 | Empty classification                           | DONE                  |
+| E3-T05 | Piece color classification and UNKNOWN         | DONE                  |
+| E3-T06 | King baseline (marked kings) / manual fallback | DONE                  |
+| E3-T07 | Observation assembly / confidence / warnings   | DONE                  |
+| E3-T08 | Recognition overlay and correction             | DONE                  |
+| **G3** | Measurable recognition and correction workflow | **AWAITING APPROVAL** |
 
 ## Later epics
 
 | Epic | Scope                     | Gate | Status |
 | ---- | ------------------------- | ---- | ------ |
-| E3   | Recognition               | G3   | TODO   |
 | E4   | Engine (Brazilian rules)  | G4   | TODO   |
 | E5   | Stabilization / inference | G5   | TODO   |
 | E6   | Game integration          | G6   | TODO   |
 | E7   | Persistence               | G7   | TODO   |
 | E8   | Release quality           | G8   | TODO   |
 
-Task-level breakdown for E3–E8 is in the specification §17.
+Task-level breakdown for E4–E8 is in the specification §17.
