@@ -273,3 +273,14 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - Rule constants live in `domain/rules/brazilian-rules.ts`; `Move` in `domain/move`, `GameResult` in `domain/game` (spec §5 contracts).
 - **Interpretations confirmed at Gate G4 (2026-11-19):** the counting unit of the 20-move and 5-move draw rules as documented; the "3 kings vs 1 on the main diagonal" ending stays unimplemented.
 - **Consequence:** `npm run test:engine` runs the engine suite on its own (Gate G4). It covers every spec §6 fixture, plus 40 seeded random games checking invariants after every move.
+
+## ADR-038 — Stabilization and move inference in the domain (E5)
+
+- **Context:** spec §8 infers a move by comparing the outcomes of the legal moves with a stable observed board; E5 delivers it before game integration (E6).
+- **Decision:**
+  - `domain/move/` (pure TypeScript): `ObservationWindow` (bounded, drops stale frames), `StableBoardDetector` (identical boards over a minimum time; new once), `compareObservedBoard` (UNKNOWN is uncertainty), `inferMove` (classifies candidates as EXACT, PENDING_REMOVAL, OCCLUDED or PARTIAL, then resolves), `reconcileObservation` (after a commit) and `MoveTracker` (one inference per position and stable board).
+  - Only a single exact, confident candidate is `MATCHED`. Pending captures, occlusion and a piece in the hand wait; partial or low-confidence matches ask the user; anything else is `NO_MATCH` → reconciliation.
+  - Two situations found while designing the tests became explicit rules: a piece in the hand (`PIECES_REMOVED_ONLY`, wait instead of `NO_MATCH`) and a promotion whose crown is not placed yet (`PROMOTION_NOT_MARKED`, the move still matches; reconciliation reports `PENDING_PROMOTION_MARK`).
+  - `MoveCandidate` extends the spec's fields with the match class, pending/unknown squares, the confidence of the changed squares and `promotionUnmarked`. `MoveInferenceResult.warnings` uses typed codes.
+  - The app chain runs the G3 per-square stabilizer, then the detector with `PIPELINE_INFERENCE_CONFIG` (2 identical boards over 200 ms). The generic defaults (3 over 500 ms) double the latency on already-consolidated input: 1.2 s and 11 missed moves out of 1,356, against 0.8 s and none, both with zero false commits.
+- **Consequence:** the Gate G5 test plays 1,356 synthetic moves frame by frame with occlusion, lifted pieces, delayed capture removal and noise. Every move is inferred, with zero false commits and a median 0.8 s after the board settles. Committing, the game state machine and the UI remain E6.

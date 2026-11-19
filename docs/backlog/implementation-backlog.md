@@ -62,13 +62,25 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | E4-T08 | API and serialization                                          | DONE                  |
 | **G4** | Rules engine test suite passes independently                   | APPROVED (2026-11-19) |
 
+## E5 — Stabilization / inference
+
+| Task   | Description                                   | Status                |
+| ------ | --------------------------------------------- | --------------------- |
+| E5-T01 | Bounded observation window                    | DONE                  |
+| E5-T02 | Stable board detector                         | DONE                  |
+| E5-T03 | Board difference utility                      | DONE                  |
+| E5-T04 | Legal candidate simulation                    | DONE                  |
+| E5-T05 | Candidate scoring and ambiguity               | DONE                  |
+| E5-T06 | Capture reconciliation                        | DONE                  |
+| E5-T07 | Idempotency / duplicate prevention            | DONE                  |
+| **G5** | Synthetic observation tests infer legal moves | APPROVED (2026-11-19) |
+
 ## Later epics
 
-| Epic | Scope                     | Gate | Status |
-| ---- | ------------------------- | ---- | ------ |
-| E5   | Stabilization / inference | G5   | TODO   |
-| E6   | Game integration          | G6   | TODO   |
-| E7   | Persistence               | G7   | TODO   |
-| E8   | Release quality           | G8   | TODO   |
+| Epic | Scope            | Gate | Status |
+| ---- | ---------------- | ---- | ------ |
+| E6   | Game integration | G6   | TODO   |
+| E7   | Persistence      | G7   | TODO   |
+| E8   | Release quality  | G8   | TODO   |
 
 Task-level breakdown for E4–E8 is in the specification §17.
