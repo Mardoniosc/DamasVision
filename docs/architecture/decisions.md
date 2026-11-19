@@ -260,3 +260,16 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - `recognition-empty.spec.ts` asserts that no empty square is read as a piece across lighting, cast shadows, glare, fingertip, hand and phone scenarios.
   - The sample export takes optional condition tags (`SAMPLE_CONDITIONS`) and a description.
 - **Consequence:** synthetic data are reported as regression only; the real samples are the evidence. No dependency was added and no version changed.
+
+## ADR-037 — Brazilian checkers engine (E4)
+
+- **Context:** spec §6 requires a pure TypeScript engine implementing the Brazilian 64-square rules, with the interpretations documented before implementation.
+- **Decision:**
+  - The rules adopted are written in `docs/engine/brazilian-checkers-rules.md`: men capture backwards, flying kings, mandatory capture with the majority rule (men and kings count the same), captured pieces removed at the end of the sequence and never jumped twice, promotion only when a move ends on the back row, White first.
+  - `BrazilianCheckersEngine` (`domain/engine/`) implements the spec's `CheckersEngine`. It is stateless, validates every input board (`InvalidBoardError` with explicit issues) and never mutates its inputs. `applyMove` accepts only legal moves (`IllegalMoveError`); `simulateMove` deliberately skips legality, for move inference (E5).
+  - A move is identified by `from`, `to` and the _set_ of captured squares (`moveKey`). Flying-king paths that capture the same pieces and land on the same square are listed once, and any of those paths validates.
+  - `Move.path` includes `from` and `to`. `Move.id` is the move's notation (`c3-d4`, `c3xe5xc7`); `squareFromName` is the inverse of `squareName`.
+  - `getResult(board, playerToMove)` sees one position, so it decides only wins (no pieces, no legal move). The draw rules need the history and live in `evaluateDraw(history)` (threefold repetition, 20 king-only plies, 5 moves each in the short endings). The game integration (E6) calls both, a win first.
+  - Rule constants live in `domain/rules/brazilian-rules.ts`; `Move` in `domain/move`, `GameResult` in `domain/game` (spec §5 contracts).
+- **Interpretations confirmed at Gate G4 (2026-11-19):** the counting unit of the 20-move and 5-move draw rules as documented; the "3 kings vs 1 on the main diagonal" ending stays unimplemented.
+- **Consequence:** `npm run test:engine` runs the engine suite on its own (Gate G4). It covers every spec §6 fixture, plus 40 seeded random games checking invariants after every move.

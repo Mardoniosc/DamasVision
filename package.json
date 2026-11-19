@@ -14,6 +14,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false",
     "test:watch": "ng test",
+    "test:engine": "ng test --watch=false --include=src/app/domain/**/*.spec.ts",
     "lint": "ng lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

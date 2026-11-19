@@ -13,3 +13,13 @@ export function squareName(index: SquareIndex): string {
 }
 
 export const FILE_LETTERS: readonly string[] = FILES.split('');
+
+/** Inverse of `squareName` ("c3" → index); throws RangeError on an invalid name. */
+export function squareFromName(name: string): SquareIndex {
+  const column = FILES.indexOf(name[0] ?? '');
+  const rank = Number(name.slice(1));
+  if (name.length !== 2 || column < 0 || !Number.isInteger(rank) || rank < 1 || rank > BOARD_SIZE) {
+    throw new RangeError(`invalid square name "${name}"`);
+  }
+  return (BOARD_SIZE - rank) * BOARD_SIZE + column;
+}

@@ -14,7 +14,7 @@ Summary of `docs/execution-specification.md` §3–§4 as implemented so far. Th
 | Vision        | `src/app/vision`             | Worker-side pipeline: OpenCV loader, perspective   | Perspective (E2), recognition (E3)                                  |
 | Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Calibrations (E2); rest in E7                                       |
 | App state     | `src/app/core/app-state`     | Session controller / state machine                 | Empty (E6)                                                          |
-| Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Board geometry, calibration (E2), observations (E3); engine E4      |
+| Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Board geometry, calibration (E2), observations (E3), engine (E4)    |
 
 Dependency direction: `features → core → domain`, `features → shared`, `features → domain`, `core/workers → vision → domain`. `domain` depends on nothing. `shared` depends on neither `features` nor `core`. These rules are enforced by ESLint (see ADR-006).
 

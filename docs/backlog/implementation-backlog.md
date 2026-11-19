@@ -48,11 +48,24 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | G3-R   | G3 refactor: staged pipeline, traces, diagnostic mode, top-face kings, piece-shaped occupancy, temporal stabilization, metrics (ADR-030–036) | DONE                  |
 | **G3** | Measurable recognition and correction workflow                                                                                               | APPROVED (2026-11-19) |
 
+## E4 — Engine
+
+| Task   | Description                                                    | Status                |
+| ------ | -------------------------------------------------------------- | --------------------- |
+| E4-T01 | Board and coordinates (initial position, validation, notation) | DONE                  |
+| E4-T02 | Regular-piece movement                                         | DONE                  |
+| E4-T03 | Mandatory captures (men capture backwards)                     | DONE                  |
+| E4-T04 | Multi-capture and majority rule                                | DONE                  |
+| E4-T05 | Flying king movement and capture                               | DONE                  |
+| E4-T06 | Promotion (including during a capture sequence)                | DONE                  |
+| E4-T07 | Results and draw interpretation                                | DONE                  |
+| E4-T08 | API and serialization                                          | DONE                  |
+| **G4** | Rules engine test suite passes independently                   | APPROVED (2026-11-19) |
+
 ## Later epics
 
 | Epic | Scope                     | Gate | Status |
 | ---- | ------------------------- | ---- | ------ |
-| E4   | Engine (Brazilian rules)  | G4   | TODO   |
 | E5   | Stabilization / inference | G5   | TODO   |
 | E6   | Game integration          | G6   | TODO   |
 | E7   | Persistence               | G7   | TODO   |
