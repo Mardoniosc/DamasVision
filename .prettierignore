@@ -1,0 +1,10 @@
+dist/
+coverage/
+.angular/
+node_modules/
+playwright-report/
+test-results/
+package-lock.json
+# Original specification is kept byte-for-byte as delivered.
+Damas_Vision_Execution_Specification_v1.md
+docs/execution-specification.md

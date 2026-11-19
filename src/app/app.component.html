@@ -1,0 +1,47 @@
+<a
+  href="#main-content"
+  class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-white focus:px-3 focus:py-2 focus:text-stone-900 focus:shadow"
+>
+  Pular para o conteúdo
+</a>
+
+<div class="flex min-h-dvh flex-col bg-surface text-stone-900">
+  <header class="border-b border-stone-200 bg-white">
+    <div
+      class="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <a routerLink="/" class="flex items-center gap-2 text-lg font-semibold tracking-tight">
+        <span class="board-mark" aria-hidden="true"></span>
+        {{ appName }}
+      </a>
+
+      <nav aria-label="Navegação principal">
+        <ul class="flex flex-wrap gap-1 text-sm">
+          @for (item of navigation; track item.path) {
+            <li>
+              <a
+                [routerLink]="item.path"
+                routerLinkActive="bg-brand-50 text-brand-700"
+                [routerLinkActiveOptions]="{ exact: item.exact }"
+                ariaCurrentWhenActive="page"
+                class="block rounded-md px-3 py-1.5 text-stone-600 hover:bg-stone-100 hover:text-stone-900"
+              >
+                {{ item.label }}
+              </a>
+            </li>
+          }
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main-content" tabindex="-1" class="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+    <router-outlet />
+  </main>
+
+  <footer class="border-t border-stone-200 bg-white">
+    <p class="mx-auto max-w-5xl px-4 py-3 text-xs text-stone-500">
+      {{ appName }} · aplicação local — nenhuma imagem sai deste dispositivo.
+    </p>
+  </footer>
+</div>

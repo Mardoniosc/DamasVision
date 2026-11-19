@@ -1,0 +1,3 @@
+/* Global styles. Tailwind CSS 4 is processed by PostCSS (.postcssrc.json). */
+@import 'tailwindcss';
+@import './styles/theme.css';

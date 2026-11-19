@@ -1,0 +1,31 @@
+/*
+ * Design tokens exposed as Tailwind utilities (e.g. `bg-surface`, `text-brand-700`).
+ * Keep visual constants here instead of scattering hex values through templates.
+ */
+@theme {
+  --color-surface: #f7f5f2;
+
+  --color-brand-50: #eef6f1;
+  --color-brand-100: #d4eadc;
+  --color-brand-600: #1f7a4a;
+  --color-brand-700: #18613b;
+
+  --color-board-light: #ecd9b4;
+  --color-board-dark: #7a4b2a;
+}
+
+@layer components {
+  /* Small 2x2 checkerboard used as the brand mark in the shell header. */
+  .board-mark {
+    display: inline-block;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 0.25rem;
+    background: conic-gradient(
+      var(--color-board-dark) 0 25%,
+      var(--color-board-light) 0 50%,
+      var(--color-board-dark) 0 75%,
+      var(--color-board-light) 0
+    );
+  }
+}

@@ -1,0 +1,208 @@
+<section class="space-y-6" aria-labelledby="setup-heading">
+  <header class="space-y-2">
+    <p class="text-sm font-medium text-brand-700">Etapa 1 · Câmera</p>
+    <h1 id="setup-heading" class="text-2xl font-semibold tracking-tight">Nova partida</h1>
+    <p class="max-w-prose text-stone-600">
+      Escolha a câmera e posicione-a de modo que o tabuleiro inteiro apareça na imagem, de
+      preferência visto de cima e bem iluminado.
+    </p>
+  </header>
+
+  <div class="grid gap-6 lg:grid-cols-[3fr_2fr]">
+    <div class="space-y-2">
+      <div class="relative aspect-video overflow-hidden rounded-lg bg-stone-900">
+        @if (camera.stream(); as stream) {
+          <video
+            [appMediaStream]="stream"
+            (playbackFailed)="previewFailed.set(true)"
+            class="h-full w-full object-contain"
+            aria-label="Pré-visualização da câmera"
+            autoplay
+            muted
+            playsinline
+          ></video>
+        } @else {
+          <div
+            class="flex h-full items-center justify-center p-6 text-center text-sm text-stone-300"
+          >
+            @if (requestingPermission()) {
+              Aguardando a permissão de acesso à câmera…
+            } @else {
+              A pré-visualização aparece aqui quando a câmera estiver ativa.
+            }
+          </div>
+        }
+      </div>
+      @if (previewFailed()) {
+        <p class="text-sm text-amber-800">
+          A pré-visualização não iniciou automaticamente. Desligue e ative a câmera novamente.
+        </p>
+      }
+    </div>
+
+    <div class="space-y-4">
+      <section
+        class="space-y-4 rounded-lg border border-stone-200 bg-white p-4"
+        aria-labelledby="camera-heading"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <h2 id="camera-heading" class="font-semibold">Câmera</h2>
+          <span
+            role="status"
+            aria-live="polite"
+            class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+            [class]="cameraStateStyle()"
+          >
+            {{ cameraStateLabel() }}
+          </span>
+        </div>
+
+        @if (cameraError(); as error) {
+          <p
+            role="alert"
+            class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+          >
+            {{ error.message }}
+          </p>
+        }
+
+        <div class="space-y-1">
+          <label for="camera-device" class="block text-sm font-medium">Dispositivo</label>
+          <select
+            id="camera-device"
+            class="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm disabled:bg-stone-100"
+            [disabled]="camera.devices().length === 0 || requestingPermission()"
+            (change)="selectDevice($event)"
+          >
+            @for (device of camera.devices(); track device.deviceId) {
+              <option
+                [value]="device.deviceId"
+                [selected]="device.deviceId === camera.selectedDeviceId()"
+              >
+                {{ device.label }}
+              </option>
+            } @empty {
+              <option value="">Nenhuma câmera listada</option>
+            }
+          </select>
+          @if (camera.devicesRequirePermission()) {
+            <p class="text-xs text-stone-500">
+              Os nomes das câmeras aparecem depois que o acesso é permitido.
+            </p>
+          }
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          @if (camera.isStreaming()) {
+            <button
+              type="button"
+              class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50"
+              (click)="stopCamera()"
+            >
+              Desligar câmera
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              [disabled]="!camera.isSupported || requestingPermission()"
+              (click)="startCamera()"
+            >
+              {{ cameraError() ? 'Tentar novamente' : 'Ativar câmera' }}
+            </button>
+          }
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+            [disabled]="!camera.isSupported"
+            (click)="refreshDevices()"
+          >
+            Atualizar lista
+          </button>
+        </div>
+      </section>
+
+      <section
+        class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+        aria-labelledby="capture-heading"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <h2 id="capture-heading" class="font-semibold">Captura de quadros</h2>
+          <span class="text-xs font-medium text-stone-600" data-testid="capture-state">
+            {{ captureStateLabel() }}
+          </span>
+        </div>
+        <p class="text-xs text-stone-500">
+          Diagnóstico: captura um quadro a cada {{ capture.intervalMs }} ms, sem fila, descartando
+          quadros atrasados. O reconhecimento do tabuleiro ainda não está ativo.
+        </p>
+
+        @if (capture.error(); as captureError) {
+          <p role="alert" class="text-sm text-red-800">{{ captureError }}</p>
+        }
+
+        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dt class="text-stone-500">Capturados</dt>
+          <dd data-testid="frames-captured">{{ capture.stats().captured }}</dd>
+          <dt class="text-stone-500">Processados</dt>
+          <dd data-testid="frames-processed">{{ capture.stats().processed }}</dd>
+          <dt class="text-stone-500">Ignorados (ocupado)</dt>
+          <dd>{{ capture.stats().skippedBusy }}</dd>
+          <dt class="text-stone-500">Descartados (atrasados)</dt>
+          <dd>{{ capture.stats().droppedStale + capture.stats().droppedInactive }}</dd>
+          <dt class="text-stone-500">Falhas</dt>
+          <dd>{{ capture.stats().failed }}</dd>
+          <dt class="text-stone-500">Último quadro</dt>
+          <dd data-testid="last-frame">
+            @if (capture.lastFrame(); as frame) {
+              {{ frame.width }} × {{ frame.height }}
+            } @else {
+              —
+            }
+          </dd>
+        </dl>
+
+        <div class="flex flex-wrap gap-2">
+          @switch (capture.state()) {
+            @case ('RUNNING') {
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50"
+                (click)="capture.pause()"
+              >
+                Pausar
+              </button>
+            }
+            @case ('PAUSED') {
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50"
+                (click)="capture.resume()"
+              >
+                Retomar
+              </button>
+            }
+            @default {
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+                [disabled]="!canStartCapture()"
+                (click)="startCapture()"
+              >
+                Iniciar captura
+              </button>
+            }
+          }
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+            [disabled]="!canStopCapture()"
+            (click)="capture.stop()"
+          >
+            Parar captura
+          </button>
+        </div>
+      </section>
+    </div>
+  </div>
+</section>
