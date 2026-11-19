@@ -6,7 +6,8 @@ import { CapturedFrame, releaseFrame } from '../frame-capture/frame-capture.mode
 import {
   CalibrationResult,
   isVisionWorkerResponse,
-  SquareDiagnostic,
+  FrameAssessment,
+  SquareTrace,
   VisionWorkerRequest,
   VisionWorkerResponse,
 } from './vision-worker.protocol';
@@ -57,7 +58,10 @@ export type VisionWorkerState = 'IDLE' | 'STARTING' | 'READY' | 'ERROR' | 'DISPO
 
 export interface RecognitionOutput {
   readonly result: BoardRecognitionResult;
-  readonly diagnostics: readonly SquareDiagnostic[];
+  readonly traces: readonly SquareTrace[];
+  readonly frame: FrameAssessment | null;
+  /** Rectified board image, only for debug requests; the caller must close it. */
+  readonly debugImage: ImageBitmap | null;
 }
 
 export interface RefinedCalibration {
@@ -171,7 +175,10 @@ export class VisionWorkerClient {
   }
 
   /** Recognizes the board in a frame (spec §9 PROCESS_FRAME). Takes ownership of the frame. */
-  async process(frame: CapturedFrame): Promise<RecognitionOutput> {
+  async process(
+    frame: CapturedFrame,
+    options: { debug?: boolean } = {},
+  ): Promise<RecognitionOutput> {
     try {
       await this.init();
     } catch (error) {
@@ -182,7 +189,12 @@ export class VisionWorkerClient {
     try {
       response = await this.request(
         `PROCESS_FRAME:${frame.frameId}`,
-        { type: 'PROCESS_FRAME', frame: frame.bitmap, frameId: frame.frameId },
+        {
+          type: 'PROCESS_FRAME',
+          frame: frame.bitmap,
+          frameId: frame.frameId,
+          ...(options.debug ? { debug: true } : {}),
+        },
         [frame.bitmap],
       );
     } finally {
@@ -194,7 +206,12 @@ export class VisionWorkerClient {
         `Unexpected ${response.type} for PROCESS_FRAME`,
       );
     }
-    return { result: response.result, diagnostics: response.diagnostics ?? [] };
+    return {
+      result: response.result,
+      traces: response.traces ?? [],
+      frame: response.frame ?? null,
+      debugImage: response.debugImage ?? null,
+    };
   }
 
   /**
@@ -346,6 +363,9 @@ export class VisionWorkerClient {
       // Late answer to a request that timed out or was superseded: release its resources.
       if (data.type === 'RECTIFIED_FRAME') {
         data.image.close();
+      }
+      if (data.type === 'RECOGNITION_RESULT') {
+        data.debugImage?.close();
       }
       if (data.type === 'ERROR') {
         this.errorState.set(new VisionWorkerError('WORKER_ERROR', data.message, data.code));

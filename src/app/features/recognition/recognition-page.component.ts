@@ -8,9 +8,16 @@ import {
   squareName,
 } from '../../shared/components/board-view/board-view.component';
 import { downloadJson } from '../../shared/utilities/file-export';
-import { SquareReason } from '../../core/workers/vision-worker.protocol';
-import { sampleFileName } from './labeled-sample';
+import {
+  SAMPLE_CONDITION_LABELS,
+  SAMPLE_CONDITIONS,
+  SampleCondition,
+  sampleFileName,
+} from './labeled-sample';
 import { RecognitionPreviewComponent } from './recognition-preview.component';
+import { RecognitionDebugComponent } from './recognition-debug.component';
+import { resolveClassifierConfig } from '../../vision/recognition/classifier.config';
+import { StableSquare } from '../../vision/recognition/temporal/observation-stabilizer';
 import { RecognitionStore } from './recognition.store';
 
 interface PieceOption {
@@ -18,20 +25,33 @@ interface PieceOption {
   readonly label: string;
 }
 
-const REASON_LABELS: Readonly<Record<SquareReason, string | null>> = {
-  OCCLUSION: 'algo cobre a casa ou os cantos estão desalinhados',
-  BOARD_CONTRAST: 'casa escura demais para distinguir peça preta',
-  PRESENCE: 'ocupação ambígua: peça fora do centro, sombra ou cantos desalinhados',
-  COLOR: 'cor da peça ambígua',
-  KING: 'marca de dama ambígua',
-  NONE: null,
-};
-
 type ExportState =
   | { readonly status: 'IDLE' }
   | { readonly status: 'WORKING' }
   | { readonly status: 'DONE' }
   | { readonly status: 'ERROR'; readonly message: string };
+
+function stableText(square: StableSquare): string {
+  const votes = Object.entries(square.votes)
+    .map(([piece, count]) => `${PIECE_NAMES[piece as keyof typeof PIECE_NAMES]} ${count}`)
+    .join(', ');
+  const verdict =
+    square.decision === 'MANUAL'
+      ? 'sem consenso — corrija manualmente'
+      : square.decision === 'RETRY'
+        ? 'aguardando mais quadros'
+        : 'estável';
+  return `${verdict} (${votes || 'sem quadros'})`;
+}
+
+const PIECE_NAMES = {
+  EMPTY: 'vazia',
+  WHITE: 'branca',
+  BLACK: 'preta',
+  WHITE_KING: 'dama branca',
+  BLACK_KING: 'dama preta',
+  UNKNOWN: '?',
+} as const;
 
 const STATUS_LABELS = {
   SUCCESS: 'Leitura confiável',
@@ -46,14 +66,17 @@ const STATUS_LABELS = {
  */
 @Component({
   selector: 'app-recognition-page',
-  imports: [BoardViewComponent, RecognitionPreviewComponent, RouterLink],
+  imports: [BoardViewComponent, RecognitionDebugComponent, RecognitionPreviewComponent, RouterLink],
   providers: [RecognitionStore, VisionWorkerClient],
   templateUrl: './recognition-page.component.html',
 })
 export class RecognitionPageComponent {
   protected readonly store = inject(RecognitionStore);
   protected readonly camera = inject(CameraService);
-  protected readonly acceptable = inject(VISION_CONFIG).confidenceThresholds.acceptable;
+  private readonly visionConfig = inject(VISION_CONFIG);
+  protected readonly acceptable = this.visionConfig.confidenceThresholds.acceptable;
+  /** Thresholds the worker classifies with, shown next to each measured feature. */
+  protected readonly classifierConfig = resolveClassifierConfig(this.visionConfig);
 
   protected readonly pieceOptions: readonly PieceOption[] = [
     { piece: 'EMPTY', label: 'Vazia' },
@@ -79,30 +102,55 @@ export class RecognitionPageComponent {
     const index = this.store.selected();
     return index === null ? null : (this.store.cells()?.[index] ?? null);
   });
-  /** Explanation for UNKNOWN or low-confidence squares. */
+  /** Explanation of every square: last frame's trace + temporal consolidation. */
   protected readonly notes = computed(() => {
-    const cells = this.store.cells();
-    const confidence = this.store.confidence();
-    const notes = new Map<number, string>();
-    for (const [index, reason] of this.store.reasons()) {
-      const label = REASON_LABELS[reason];
-      const uncertain =
-        cells?.[index] === 'UNKNOWN' || (confidence?.[index] ?? 1) < this.acceptable;
-      if (label && uncertain) notes.set(index, label);
-    }
-    return notes;
+    const stable = new Map(this.store.stableSquares().map((s) => [s.squareIndex, s]));
+    return new Map(
+      this.store.traces().map((trace) => {
+        const square = stable.get(trace.squareIndex);
+        const temporal = square ? ` Estabilização: ${stableText(square)}.` : '';
+        return [trace.squareIndex, trace.explanation + temporal];
+      }),
+    );
   });
   protected readonly exportState = signal<ExportState>({ status: 'IDLE' });
+  /** Dataset metadata for the exported sample (G3). */
+  protected readonly conditionOptions = SAMPLE_CONDITIONS.map((condition) => ({
+    condition,
+    label: SAMPLE_CONDITION_LABELS[condition],
+  }));
+  protected readonly sampleConditions = signal<readonly SampleCondition[]>([]);
+  protected readonly sampleDescription = signal('');
+
+  protected toggleCondition(condition: SampleCondition, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.sampleConditions.update((current) =>
+      checked
+        ? [...current.filter((c) => c !== condition), condition]
+        : current.filter((c) => c !== condition),
+    );
+  }
+
+  protected setDescription(event: Event): void {
+    this.sampleDescription.set((event.target as HTMLTextAreaElement).value);
+  }
 
   protected readonly metricsPercent = computed(() => {
     const metrics = this.store.metrics();
     return metrics ? Math.round((metrics.matched / metrics.total) * 100) : null;
   });
 
+  protected toggleDebug(event: Event): void {
+    this.store.setDebug((event.target as HTMLInputElement).checked);
+  }
+
   protected async exportSample(): Promise<void> {
     this.exportState.set({ status: 'WORKING' });
     try {
-      const sample = await this.store.buildLabeledSample();
+      const sample = await this.store.buildLabeledSample({
+        description: this.sampleDescription(),
+        conditions: this.sampleConditions(),
+      });
       downloadJson(sampleFileName(sample.createdAt), sample);
       this.exportState.set({ status: 'DONE' });
     } catch (error) {

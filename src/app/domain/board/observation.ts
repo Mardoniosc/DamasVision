@@ -26,6 +26,7 @@ export type RecognitionWarningCode =
   | 'UNDEREXPOSED'
   | 'OVEREXPOSED'
   | 'LOW_BOARD_CONTRAST'
+  | 'CALIBRATION_MISALIGNED'
   | 'TOO_MANY_PIECES';
 
 export interface RecognitionWarning {

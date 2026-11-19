@@ -42,16 +42,17 @@ If sources conflict, stop and report the conflict.
 
 ## Commands
 
-| Purpose                     | Command                                            |
-| --------------------------- | -------------------------------------------------- |
-| Dev server (localhost:4200) | `npm start`                                        |
-| Unit + integration tests    | `npm test` (Vitest via `@angular/build:unit-test`) |
-| Tests in watch mode         | `npm run test:watch`                               |
-| Lint (incl. boundary rules) | `npm run lint`                                     |
-| Format / check format       | `npm run format` / `npm run format:check`          |
-| Production build            | `npm run build` (output `dist/damas-vision/`)      |
-| E2E (Playwright, Chromium)  | `npm run e2e` (starts `ng serve` on port 4300)     |
-| Full validation             | `npm run validate` (lint, format, test, build)     |
+| Purpose                     | Command                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| Dev server (localhost:4200) | `npm start`                                                                      |
+| Unit + integration tests    | `npm test` (Vitest via `@angular/build:unit-test`)                               |
+| Tests in watch mode         | `npm run test:watch`                                                             |
+| Lint (incl. boundary rules) | `npm run lint`                                                                   |
+| Format / check format       | `npm run format` / `npm run format:check`                                        |
+| Production build            | `npm run build` (output `dist/damas-vision/`)                                    |
+| E2E (Playwright, Chromium)  | `npm run e2e` (starts `ng serve` on port 4300)                                   |
+| Full validation             | `npm run validate` (lint, format, test, build)                                   |
+| Recognition metrics report  | `npm run eval:recognition` (real samples → `docs/vision/recognition-metrics.md`) |
 
 First-time E2E setup: `npx playwright install chromium`.
 
@@ -94,8 +95,9 @@ If a rule blocks legitimate work, raise it instead of disabling it inline.
 
 ## Current status
 
-- G0, G1 and G2 approved (2026-11-19).
-- E3 — Recognition implemented. **Gate G3 awaiting approval.** Do not start E4 (engine) or any later epic until the user approves G3.
-- Recognition must never produce a confident wrong answer: any classifier change must keep `tests/integration/recognition-accuracy.spec.ts` and `recognition-pipeline.spec.ts` at zero confident errors; add a scenario for every new failure mode found.
+- G0, G1, G2 and G3 approved (2026-11-19).
+- E3 — Recognition implemented and refactored in G3 (ADR-030–036). G3 approved without further real samples: real kings, empty boards, artificial light and obstruction are still unmeasured (see `docs/vision/recognition.md`, Known limitations). Next is E4 (engine); start it only when the user asks.
+- Recognition must never produce a confident wrong answer: any classifier change must keep `tests/integration/recognition-accuracy.spec.ts`, `recognition-empty.spec.ts`, `recognition-pipeline.spec.ts`, `real-samples.spec.ts` and `recognition-metrics.spec.ts` at zero confident errors; add a scenario for every new failure mode found. Validate every threshold change on the real samples (`tests/fixtures/real-samples`), not only on synthetic boards, and regenerate `docs/vision/recognition-metrics.md` with `npm run eval:recognition`.
+- Synthetic boards rendered with `pieceHeight` must pass `awayFromCamera: { x: 0, y: -1 }` to `recognizeBoard` (the worker derives it from the calibration).
 - Test doubles live in `tests/fixtures/`: `FakeMediaDevices`, `FakeFrameSource`, `FakeVisionWorker`, `InMemoryCalibrationRepository`, `synthetic-board.ts` (deterministic board renderer + `scoreRecognition`), `recognition-results.ts`. Specs that need OpenCV load the real bundled build. E2E uses Chromium's synthetic camera (`playwright.config.ts`; project `chromium-board` plays a generated board video for `*recognition.spec.ts`) and `tests/e2e/support/media-probe.ts`; assert "no live tracks" after every lifecycle change.
 - Backlog and gate status: `docs/backlog/implementation-backlog.md`.

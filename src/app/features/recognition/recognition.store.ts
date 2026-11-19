@@ -11,8 +11,12 @@ import {
 import { VISION_CONFIG, VisionWorkerClient } from '../../core/workers/vision-worker.client';
 import { releaseFrame } from '../../core/frame-capture/frame-capture.models';
 import { bitmapToPngDataUrl } from '../../shared/utilities/file-export';
-import { LABELED_SAMPLE_FORMAT, LabeledSample } from './labeled-sample';
-import { SquareDiagnostic, SquareReason } from '../../core/workers/vision-worker.protocol';
+import {
+  ObservationStabilizer,
+  StableSquare,
+} from '../../vision/recognition/temporal/observation-stabilizer';
+import { LABELED_SAMPLE_FORMAT, LabeledSample, SampleMetadata } from './labeled-sample';
+import { FrameAssessment, SquareTrace } from '../../core/workers/vision-worker.protocol';
 import { isPlayableSquare, PLAYABLE_SQUARES, SquareIndex } from '../../domain/board/board';
 import { projectBoardOverlay } from '../../domain/board/board-grid';
 import {
@@ -75,8 +79,18 @@ export class RecognitionStore {
   private readonly latestState = signal<BoardRecognitionResult | null>(null);
   private readonly frameSizeState = signal<Size2D | null>(null);
   private readonly frozenState = signal<BoardRecognitionResult | null>(null);
-  private readonly latestDiagnosticsState = signal<readonly SquareDiagnostic[]>([]);
-  private readonly frozenDiagnosticsState = signal<readonly SquareDiagnostic[]>([]);
+  private readonly latestTracesState = signal<readonly SquareTrace[]>([]);
+  private readonly frozenTracesState = signal<readonly SquareTrace[]>([]);
+  private readonly frameAssessmentState = signal<FrameAssessment | null>(null);
+  private readonly debugState = signal(false);
+  private readonly debugImageState = signal<ImageBitmap | null>(null);
+  private readonly stableSquaresState = signal<readonly StableSquare[]>([]);
+  private readonly stabilizer = new ObservationStabilizer({
+    windowSize: this.visionConfig.stabilityWindowSize,
+    minAgreeing: this.visionConfig.stableObservationCount,
+    maxAgeMs: this.visionConfig.stabilityWindowSize * this.visionConfig.analysisIntervalMs * 2,
+    acceptable: this.visionConfig.confidenceThresholds.acceptable,
+  });
   private readonly correctionsState = signal<ReadonlyMap<SquareIndex, Piece>>(new Map());
   private readonly selectedState = signal<SquareIndex | null>(null);
   private readonly confirmedState = signal<BoardObservation | null>(null);
@@ -93,16 +107,17 @@ export class RecognitionStore {
   readonly realignState = this.realignStateSignal.asReadonly();
   readonly framesProcessed = computed(() => this.capture.stats().processed);
 
-  /** Reason per square for the reading shown (why a square is UNKNOWN or uncertain). */
-  readonly reasons = computed<ReadonlyMap<SquareIndex, SquareReason>>(() => {
-    const diagnostics = this.frozenState()
-      ? this.frozenDiagnosticsState()
-      : this.latestDiagnosticsState();
-    return new Map(diagnostics.map((d) => [d.squareIndex, d.reason]));
-  });
-
-  /** Diagnostics of the frozen reading (exported with labeled samples). */
-  readonly frozenDiagnostics = this.frozenDiagnosticsState.asReadonly();
+  /** Per-square traces of the reading shown (frozen while correcting, live otherwise). */
+  readonly traces = computed<readonly SquareTrace[]>(() =>
+    this.frozenState() ? this.frozenTracesState() : this.latestTracesState(),
+  );
+  /** Stage A assessment of the last processed frame. */
+  readonly frameAssessment = this.frameAssessmentState.asReadonly();
+  /** Diagnostic mode: the worker also returns the rectified image. */
+  readonly debug = this.debugState.asReadonly();
+  readonly debugImage = this.debugImageState.asReadonly();
+  /** Temporal consolidation per square (votes, decision), for the shown reading. */
+  readonly stableSquares = this.stableSquaresState.asReadonly();
 
   /** The recognition shown: frozen while correcting, live otherwise. */
   readonly shown = computed(() => this.frozenState() ?? this.latestState());
@@ -181,13 +196,17 @@ export class RecognitionStore {
   private calibratedFor: Size2D | null = null;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.capture.stop());
+    inject(DestroyRef).onDestroy(() => {
+      this.capture.stop();
+      this.replaceDebugImage(null);
+    });
   }
 
   /** Loads the active calibration, opens the camera and starts recognizing. */
   async start(): Promise<void> {
     this.phaseState.set('LOADING');
     this.errorState.set(null);
+    this.resetStabilization();
     let profile: PersistedCalibration | undefined;
     try {
       profile = await this.repository.getActive();
@@ -244,6 +263,7 @@ export class RecognitionStore {
       await this.repository.update(updated);
       this.profileState.set(updated);
       this.calibratedFor = null;
+      this.resetStabilization();
       this.realignStateSignal.set({ status: 'DONE', shiftPx: Math.round(result.maxShiftPx) });
     } catch (error) {
       const message =
@@ -258,13 +278,30 @@ export class RecognitionStore {
     }
   }
 
+  private resetStabilization(): void {
+    this.stabilizer.reset();
+    this.stableSquaresState.set([]);
+  }
+
+  /** Turns the diagnostic view on or off (rectified image + per-square traces). */
+  setDebug(enabled: boolean): void {
+    this.debugState.set(enabled);
+    if (!enabled) this.replaceDebugImage(null);
+  }
+
+  private replaceDebugImage(image: ImageBitmap | null): void {
+    const previous = this.debugImageState();
+    if (previous && previous !== image) previous.close();
+    this.debugImageState.set(image);
+  }
+
   /** Freezes the current reading so the user can correct it. */
   pauseForCorrection(): void {
     const latest = this.latestState();
     if (this.phaseState() !== 'RECOGNIZING' || !latest) return;
     this.capture.pause();
     this.frozenState.set(latest);
-    this.frozenDiagnosticsState.set(this.latestDiagnosticsState());
+    this.frozenTracesState.set(this.latestTracesState());
     this.correctionsState.set(new Map());
     this.selectedState.set(null);
     this.phaseState.set('CORRECTING');
@@ -277,6 +314,7 @@ export class RecognitionStore {
     this.confirmedState.set(null);
     this.correctionsState.set(new Map());
     this.selectedState.set(null);
+    this.resetStabilization();
     this.phaseState.set('RECOGNIZING');
     this.capture.resume();
   }
@@ -318,7 +356,7 @@ export class RecognitionStore {
    * Builds a labeled sample from the confirmed position and a fresh camera frame, for
    * validating recognition on real boards (ADR-028). Requires a confirmed position.
    */
-  async buildLabeledSample(): Promise<LabeledSample> {
+  async buildLabeledSample(metadata: SampleMetadata = {}): Promise<LabeledSample> {
     const confirmed = this.confirmedState();
     const frozen = this.frozenState();
     const profile = this.profileState();
@@ -350,9 +388,11 @@ export class RecognitionStore {
         recognized: {
           cells: frozen.board.cells,
           confidenceBySquare: frozen.board.confidenceBySquare,
-          diagnostics: this.frozenDiagnosticsState(),
+          diagnostics: this.frozenTracesState(),
         },
         visionConfig: this.visionConfig,
+        ...(metadata.description?.trim() ? { description: metadata.description.trim() } : {}),
+        ...(metadata.conditions?.length ? { conditions: [...metadata.conditions] } : {}),
       };
     } finally {
       releaseFrame(frame);
@@ -379,10 +419,17 @@ export class RecognitionStore {
       this.calibratedFor = size;
       this.frameSizeState.set(size);
     }
-    const { result, diagnostics } = await this.worker.process(frame);
+    const output = await this.worker.process(frame, { debug: this.debugState() });
     if (this.phaseState() === 'RECOGNIZING') {
-      this.latestState.set(result);
-      this.latestDiagnosticsState.set(diagnostics);
+      // The board shows the temporally consolidated reading, never a single frame.
+      this.stabilizer.push(output.result, output.frame);
+      this.latestState.set(this.stabilizer.stableResult(output.result));
+      this.stableSquaresState.set(this.stabilizer.squares());
+      this.latestTracesState.set(output.traces);
+      this.frameAssessmentState.set(output.frame);
+      this.replaceDebugImage(output.debugImage);
+    } else {
+      output.debugImage?.close();
     }
   }
 

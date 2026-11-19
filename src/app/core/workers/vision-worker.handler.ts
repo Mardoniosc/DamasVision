@@ -1,5 +1,5 @@
 import { validateCalibrationCorners } from '../../domain/board/calibration';
-import { Size2D } from '../../domain/board/geometry';
+import { Point2D, Size2D } from '../../domain/board/geometry';
 import { Homography } from '../../domain/board/homography';
 import { OpenCv } from '../../vision/opencv-loader';
 import { computePerspectiveTransform, RgbaImage, warpPerspective } from '../../vision/perspective';
@@ -10,8 +10,9 @@ import {
 } from '../../vision/recognition/classifier.config';
 import { refineCorners, toGray } from '../../vision/calibration-refinement';
 import { denoise } from '../../vision/recognition/denoise';
-import { measureFrameQuality, qualityWarnings } from '../../vision/recognition/frame-quality';
+import { measureFrameQuality } from '../../vision/recognition/frame-quality';
 import { recognizeBoard } from '../../vision/recognition/recognize-board';
+import { awayFromCamera } from '../../vision/recognition/top-face';
 import { isVisionConfig, VisionConfig } from '../../vision/vision.config';
 import {
   isBitmapLike,
@@ -37,6 +38,8 @@ export interface VisionWorkerHandlerDependencies {
 interface ActiveCalibration {
   readonly transform: Homography;
   readonly size: Size2D;
+  /** Direction in which tall pieces' tops are projected on the rectified board (G3). */
+  readonly awayFromCamera: Point2D | null;
 }
 
 /**
@@ -121,7 +124,14 @@ export function createVisionWorkerHandler(
     }
     try {
       const transform = computePerspectiveTransform(cv, corners, size);
-      calibration = { transform, size };
+      calibration = {
+        transform,
+        size,
+        awayFromCamera: awayFromCamera(
+          corners,
+          (classifier as ClassifierConfig).shape.minViewObliquity,
+        ),
+      };
       deps.post({
         type: 'CALIBRATION_RESULT',
         result: {
@@ -219,22 +229,24 @@ export function createVisionWorkerHandler(
       // Sharpness is measured on the raw rectified image, before smoothing.
       const quality = measureFrameQuality(opencv, rectified);
       const smoothed = denoise(opencv, rectified, thresholds.shape.denoiseKernelSize);
-      const { result, diagnostics } = recognizeBoard(smoothed, thresholds, {
+      const { result, traces, frame } = recognizeBoard(smoothed, thresholds, {
         timestamp: now(),
         frameId,
-        qualityWarnings: qualityWarnings(quality, thresholds.color, thresholds.shape),
+        quality,
+        awayFromCamera: calibration?.awayFromCamera ?? null,
       });
-      deps.post({
-        type: 'RECOGNITION_RESULT',
-        result,
-        frameId,
-        diagnostics: diagnostics.map((d) => ({
-          squareIndex: d.features.index,
-          reason: d.classification.limitedBy,
-          foregroundRatio: Math.round(d.features.foregroundRatio * 1000) / 1000,
-          occluded: d.occluded,
-        })),
-      });
+      const debugImage = message['debug'] === true ? await deps.createBitmap(smoothed) : undefined;
+      deps.post(
+        {
+          type: 'RECOGNITION_RESULT',
+          result,
+          frameId,
+          traces,
+          frame,
+          ...(debugImage ? { debugImage } : {}),
+        },
+        debugImage ? [debugImage] : [],
+      );
     });
 
   return async (message: unknown): Promise<void> => {

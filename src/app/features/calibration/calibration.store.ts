@@ -27,6 +27,7 @@ import {
 } from '../../domain/board/calibration';
 import { Point2D, Size2D } from '../../domain/board/geometry';
 import { describeIssue } from './calibration-messages';
+import { resolveClassifierConfig } from '../../vision/recognition/classifier.config';
 
 export type PreviewState =
   | { readonly status: 'IDLE' }
@@ -64,6 +65,8 @@ export class CalibrationStore {
     height: this.visionConfig.normalizedBoardHeight,
   };
   readonly roiInsetRatio = this.visionConfig.roiInsetRatio;
+  /** Classifier geometry, so the preview draws the regions recognition really uses. */
+  readonly classifierShape = resolveClassifierConfig(this.visionConfig).shape;
 
   private readonly sourceSizeState = signal<Size2D | null>(null);
   private readonly cornersState = signal<CalibrationCorners | null>(null);

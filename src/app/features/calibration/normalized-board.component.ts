@@ -8,10 +8,14 @@ import {
 } from '@angular/core';
 import { createBoardGrid, squareRoi } from '../../domain/board/board-grid';
 import { Size2D } from '../../domain/board/geometry';
+import { ShapeThresholds } from '../../vision/recognition/classifier.config';
+import { squareRegions } from '../../vision/recognition/square-regions';
 
 /**
- * Normalized (rectified) board image with the canonical 8×8 grid, the playable
- * squares and their regions of interest drawn on top (E2-T05).
+ * Normalized (rectified) board image with the canonical 8×8 grid and the regions the
+ * classifier actually analyses (E2-T05, G3): on playable squares the piece disk and the
+ * radius beyond which the corners are read as board background; on light squares the
+ * inset region used as the local illumination reference.
  */
 @Component({
   selector: 'app-normalized-board',
@@ -37,17 +41,42 @@ import { Size2D } from '../../domain/board/geometry';
               [attr.height]="square.bounds.height"
               fill="#22c55e"
               fill-opacity="0.12"
+              data-region="cell"
             />
+            <circle
+              [attr.cx]="square.center.x"
+              [attr.cy]="square.center.y"
+              [attr.r]="square.regions.pieceRadius"
+              fill="none"
+              stroke="#22c55e"
+              stroke-width="1.5"
+              vector-effect="non-scaling-stroke"
+              data-region="piece"
+            />
+            <circle
+              [attr.cx]="square.center.x"
+              [attr.cy]="square.center.y"
+              [attr.r]="square.regions.backgroundRadius"
+              fill="none"
+              stroke="#22c55e"
+              stroke-dasharray="4 3"
+              stroke-width="1"
+              vector-effect="non-scaling-stroke"
+              data-region="background"
+            />
+          } @else {
             <rect
               [attr.x]="square.roi.x"
               [attr.y]="square.roi.y"
               [attr.width]="square.roi.width"
               [attr.height]="square.roi.height"
               fill="none"
-              stroke="#22c55e"
-              stroke-dasharray="4 3"
-              stroke-width="1.5"
+              stroke="white"
+              stroke-opacity="0.4"
+              stroke-dasharray="2 4"
+              stroke-width="1"
               vector-effect="non-scaling-stroke"
+              data-region="light-reference"
             />
           }
         }
@@ -71,6 +100,7 @@ export class NormalizedBoardComponent {
   readonly image = input<ImageBitmap | null>(null);
   readonly size = input.required<Size2D>();
   readonly roiInsetRatio = input.required<number>();
+  readonly shape = input.required<ShapeThresholds>();
 
   private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
 
@@ -78,6 +108,7 @@ export class NormalizedBoardComponent {
     createBoardGrid(this.size()).map((square) => ({
       ...square,
       roi: squareRoi(square, this.roiInsetRatio()),
+      regions: squareRegions(square, this.shape()),
     })),
   );
   protected readonly gridLines = computed(() => {
@@ -89,7 +120,7 @@ export class NormalizedBoardComponent {
   });
   protected readonly description = computed(
     () =>
-      `Tabuleiro normalizado de ${this.size().width} por ${this.size().height} pixels, com as 32 casas jogáveis e suas regiões de análise destacadas.`,
+      `Tabuleiro normalizado de ${this.size().width} por ${this.size().height} pixels, com as 32 casas jogáveis e as regiões que o classificador analisa destacadas.`,
   );
 
   constructor() {

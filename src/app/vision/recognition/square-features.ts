@@ -1,91 +1,19 @@
-import { SquareGeometry, squareRoi } from '../../domain/board/board-grid';
 import { Rect } from '../../domain/board/geometry';
 import { RgbaImage } from '../perspective';
-import { ShapeThresholds } from './classifier.config';
+import { ColorThresholds } from './classifier.config';
+import { cornerQuadrant, pixelBounds, SquareRegions } from './square-regions';
+
+/** The occupancy ring is the outer part of the central disk, from this fraction of its radius. */
+export const OCCUPANCY_RING_INNER_FRACTION = 0.7;
 
 /** Maximum RGB distance (black ↔ white), used to normalize color distances to 0..1. */
 const RGB_DIAGONAL = Math.sqrt(3 * 255 * 255);
-/** Pixels this close to the square edge are skipped (grid lines, neighbour bleed). */
-const EDGE_MARGIN_RATIO = 0.03;
-/** The king-mark annulus starts this far outside the mark radius, to skip anti-aliased edges. */
-const BODY_INNER_GAP = 1.6;
-
-/** Per-square measurements (E3-T03). Luminance values are 0..1 (Rec. 601 luma). */
-export interface SquareFeatures {
-  readonly index: number;
-  /** Median color of the square corners (outside the piece circle): the board itself. */
-  readonly backgroundColor: Rgb;
-  readonly backgroundLuminance: number;
-  /** Mean color and luminance of the central disk where a piece would be. */
-  readonly pieceColor: Rgb;
-  readonly pieceLuminance: number;
-  /** Mean HSV saturation of the central disk. */
-  readonly pieceSaturation: number;
-  /** Distance between `pieceColor` and `backgroundColor` (0..1). */
-  readonly colorDistance: number;
-  /** Fraction of disk pixels that differ from the background (0..1). */
-  readonly foregroundRatio: number;
-  /**
-   * Mean luminance of the piece pixels in the small central disk (king mark). Only pixels
-   * that differ from the square background count, so a piece that does not fully cover
-   * the disk is not "diluted" by the board (first real-world samples, 2026-11-19).
-   */
-  readonly markLuminance: number;
-  /** Mean luminance of the piece pixels of the body, excluding the mark area. */
-  readonly bodyLuminance: number;
-  /** Mean colors of the mark and body regions (for chromatic king marks). */
-  readonly markColor: Rgb;
-  readonly bodyColor: Rgb;
-}
-
-export function luminance(r: number, g: number, b: number): number {
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-}
-
-function saturation(r: number, g: number, b: number): number {
-  const max = Math.max(r, g, b);
-  return max === 0 ? 0 : (max - Math.min(r, g, b)) / max;
-}
-
-/** Median of 8-bit values via a 256-bin histogram. */
-function histogramMedian(histogram: Uint32Array, count: number): number {
-  const half = count / 2;
-  let seen = 0;
-  for (let value = 0; value < 256; value++) {
-    seen += histogram[value] ?? 0;
-    if (seen >= half) {
-      return value;
-    }
-  }
-  return 255;
-}
 
 export type Rgb = readonly [number, number, number];
 
-/** Per-channel median color of the pixels inside `rect`. */
-export function medianColor(image: RgbaImage, rect: Rect): Rgb {
-  const histograms = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)] as const;
-  let count = 0;
-  const { x0, y0, x1, y1 } = pixelBounds(image, rect);
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
-      const o = (y * image.width + x) * 4;
-      histograms[0][image.data[o] ?? 0]! += 1;
-      histograms[1][image.data[o + 1] ?? 0]! += 1;
-      histograms[2][image.data[o + 2] ?? 0]! += 1;
-      count++;
-    }
-  }
-  return [
-    histogramMedian(histograms[0], count),
-    histogramMedian(histograms[1], count),
-    histogramMedian(histograms[2], count),
-  ];
-}
-
-/** Median color of a square's region of interest (E3-T02). */
-export function roiColor(image: RgbaImage, square: SquareGeometry, insetRatio: number): Rgb {
-  return medianColor(image, squareRoi(square, insetRatio));
+/** Rec. 601 luma, 0..1. */
+export function luminance(r: number, g: number, b: number): number {
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 }
 
 /** Chromaticity (r, g) = (R, G) / (R + G + B): independent of brightness. */
@@ -100,154 +28,233 @@ export function chromaDistance(a: Rgb, b: Rgb): number {
   return Math.hypot(ar - br, ag - bg);
 }
 
+/** Median of 8-bit values via a 256-bin histogram. */
+function histogramMedian(histogram: Uint32Array, count: number): number {
+  const half = count / 2;
+  let seen = 0;
+  for (let value = 0; value < 256; value++) {
+    seen += histogram[value] ?? 0;
+    if (seen >= half) return value;
+  }
+  return 255;
+}
+
+class ColorHistogram {
+  private readonly channels = [
+    new Uint32Array(256),
+    new Uint32Array(256),
+    new Uint32Array(256),
+  ] as const;
+  count = 0;
+
+  add(r: number, g: number, b: number): void {
+    this.channels[0][r]! += 1;
+    this.channels[1][g]! += 1;
+    this.channels[2][b]! += 1;
+    this.count++;
+  }
+
+  median(): Rgb {
+    return [
+      histogramMedian(this.channels[0], this.count),
+      histogramMedian(this.channels[1], this.count),
+      histogramMedian(this.channels[2], this.count),
+    ];
+  }
+}
+
+/** Per-channel median color of the pixels inside `rect`. */
+export function medianColor(image: RgbaImage, rect: Rect): Rgb {
+  const histogram = new ColorHistogram();
+  const { x0, y0, x1, y1 } = pixelBounds(image.width, image.height, rect);
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const o = (y * image.width + x) * 4;
+      histogram.add(image.data[o] ?? 0, image.data[o + 1] ?? 0, image.data[o + 2] ?? 0);
+    }
+  }
+  return histogram.count === 0 ? [0, 0, 0] : histogram.median();
+}
+
+export interface CornerSample {
+  /** Median color of the corner pixels (outside the background radius). */
+  readonly color: Rgb;
+  readonly pixels: number;
+}
+
+/** Median color of each corner quadrant (TL, TR, BR, BL) of a square (G3 background model). */
+export function measureCorners(image: RgbaImage, regions: SquareRegions): readonly CornerSample[] {
+  const histograms = [
+    new ColorHistogram(),
+    new ColorHistogram(),
+    new ColorHistogram(),
+    new ColorHistogram(),
+  ];
+  const { x0, y0, x1, y1 } = pixelBounds(image.width, image.height, regions.area);
+  const r2 = regions.backgroundRadius * regions.backgroundRadius;
+  for (let y = y0; y < y1; y++) {
+    const dy = y + 0.5 - regions.center.y;
+    for (let x = x0; x < x1; x++) {
+      const dx = x + 0.5 - regions.center.x;
+      if (dx * dx + dy * dy < r2) continue;
+      const o = (y * image.width + x) * 4;
+      histograms[cornerQuadrant(dx, dy)]?.add(
+        image.data[o] ?? 0,
+        image.data[o + 1] ?? 0,
+        image.data[o + 2] ?? 0,
+      );
+    }
+  }
+  return histograms.map((h) => ({
+    color: h.count === 0 ? ([0, 0, 0] as Rgb) : h.median(),
+    pixels: h.count,
+  }));
+}
+
+/** Per-square measurements used by the stages and the diagnostics. Luminance is 0..1. */
+export interface SquareFeatures {
+  readonly index: number;
+  /** Background chosen by the background model (corners that look like the board). */
+  readonly backgroundColor: Rgb;
+  readonly backgroundLuminance: number;
+  /** Mean color, luminance and luminance spread of the central disk. */
+  readonly pieceColor: Rgb;
+  readonly pieceLuminance: number;
+  readonly pieceLuminanceStd: number;
+  /** Distance between `pieceColor` and `backgroundColor` (0..1). */
+  readonly colorDistance: number;
+  /** Fraction of disk pixels that differ from the background (0..1). */
+  readonly foregroundRatio: number;
+  /** Fraction of disk pixels that differ, but only as shadow or glare on the board (0..1). */
+  readonly shadowRatio: number;
+  /** Foreground fraction of the outer ring of the disk (a piece covers it; a spot does not). */
+  readonly ringForegroundRatio: number;
+  /** Mean luminance / color of the *piece* pixels in the mark disk and in the body ring. */
+  readonly markLuminance: number;
+  readonly bodyLuminance: number;
+  readonly markColor: Rgb;
+  readonly bodyColor: Rgb;
+}
+
+export interface ForegroundTest {
+  /** Absolute RGB distance threshold (0..1 of the diagonal), already scaled by the light reference. */
+  readonly distance: number;
+  readonly color: ColorThresholds;
+}
+
 /**
- * Extracts the features of one square from the normalized board image (E3-T02/T03).
- * Regions are defined relative to the square center: the piece disk, the king-mark
- * disk inside it, and the corners outside the inscribed circle (board background).
+ * Extracts the features of one square against a given background color. A disk pixel is
+ * foreground when it differs from the background by more than `test.distance`, unless it
+ * keeps the background's chromaticity with a shadow/glare-like luminance change — the board
+ * in shadow is still the board.
  */
 export function extractSquareFeatures(
   image: RgbaImage,
-  square: SquareGeometry,
-  shape: ShapeThresholds,
-  /** Absolute pixel distance threshold, 0..1 of the RGB diagonal. */
-  pixelForegroundDistance: number,
+  index: number,
+  regions: SquareRegions,
+  background: Rgb,
+  test: ForegroundTest,
 ): SquareFeatures {
-  const size = Math.min(square.bounds.width, square.bounds.height);
-  const margin = size * EDGE_MARGIN_RATIO;
-  const area = {
-    x: square.bounds.x + margin,
-    y: square.bounds.y + margin,
-    width: square.bounds.width - 2 * margin,
-    height: square.bounds.height - 2 * margin,
-  };
-  const { x0, y0, x1, y1 } = pixelBounds(image, area);
-  const cx = square.center.x;
-  const cy = square.center.y;
-  const pieceRadius = shape.pieceRadiusRatio * size;
-  const backgroundRadius = shape.backgroundMinRadiusRatio * size;
-  const markRadius = shape.kingMarkRadiusRatio * size;
-  const bodyInnerRadius = Math.min(markRadius * BODY_INNER_GAP, pieceRadius * 0.9);
+  const { x0, y0, x1, y1 } = pixelBounds(image.width, image.height, regions.area);
+  const { center, pieceRadius, markRadius, bodyInnerRadius } = regions;
   const data = image.data;
+  const thresholdSquared = (test.distance * RGB_DIAGONAL) ** 2;
+  const backgroundLuminance = luminance(...background);
+  const backgroundChromaReliable = backgroundLuminance >= test.color.chromaMinLuminance;
 
-  // Pass 1: background histograms (corners) and disk statistics.
-  const histograms = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)] as const;
-  let backgroundCount = 0;
+  const ringInnerSquared = (OCCUPANCY_RING_INNER_FRACTION * pieceRadius) ** 2;
   let diskCount = 0;
-  let diskR = 0;
-  let diskG = 0;
-  let diskB = 0;
-  let diskSaturation = 0;
+  let ringCount = 0;
+  let ringForeground = 0;
+  let foreground = 0;
+  let shadow = 0;
+  let lumSum = 0;
+  let lumSquaredSum = 0;
+  const diskSum = [0, 0, 0];
+  const mark = { count: 0, luma: 0, sum: [0, 0, 0] };
+  const body = { count: 0, luma: 0, sum: [0, 0, 0] };
+
   for (let y = y0; y < y1; y++) {
-    const dy = y + 0.5 - cy;
+    const dy = y + 0.5 - center.y;
     for (let x = x0; x < x1; x++) {
-      const dx = x + 0.5 - cx;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      const dx = x + 0.5 - center.x;
+      const distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared > pieceRadius * pieceRadius) continue;
       const o = (y * image.width + x) * 4;
       const r = data[o] ?? 0;
       const g = data[o + 1] ?? 0;
       const b = data[o + 2] ?? 0;
-      if (distance >= backgroundRadius) {
-        histograms[0][r]! += 1;
-        histograms[1][g]! += 1;
-        histograms[2][b]! += 1;
-        backgroundCount++;
-      } else if (distance <= pieceRadius) {
-        diskR += r;
-        diskG += g;
-        diskB += b;
-        diskSaturation += saturation(r, g, b);
-        diskCount++;
-      }
-    }
-  }
+      const luma = luminance(r, g, b);
+      const inRing = distanceSquared >= ringInnerSquared;
+      diskCount++;
+      if (inRing) ringCount++;
+      lumSum += luma;
+      lumSquaredSum += luma * luma;
+      diskSum[0]! += r;
+      diskSum[1]! += g;
+      diskSum[2]! += b;
 
-  const backgroundColor: [number, number, number] = [
-    histogramMedian(histograms[0], backgroundCount),
-    histogramMedian(histograms[1], backgroundCount),
-    histogramMedian(histograms[2], backgroundCount),
-  ];
-  const pieceColor: [number, number, number] =
-    diskCount === 0 ? [0, 0, 0] : [diskR / diskCount, diskG / diskCount, diskB / diskCount];
+      const dr = r - background[0];
+      const dg = g - background[1];
+      const db = b - background[2];
+      if (dr * dr + dg * dg + db * db <= thresholdSquared) continue;
 
-  // Pass 2: foreground (piece) pixels inside the disk, and mark/body statistics over them.
-  const threshold = pixelForegroundDistance * RGB_DIAGONAL;
-  const thresholdSquared = threshold * threshold;
-  let foreground = 0;
-  let markLuma = 0;
-  let markCount = 0;
-  let bodyLuma = 0;
-  let bodyCount = 0;
-  const markSum = [0, 0, 0];
-  const bodySum = [0, 0, 0];
-  for (let y = y0; y < y1; y++) {
-    const dy = y + 0.5 - cy;
-    for (let x = x0; x < x1; x++) {
-      const dx = x + 0.5 - cx;
-      const distanceSquared = dx * dx + dy * dy;
-      if (distanceSquared > pieceRadius * pieceRadius) {
-        continue;
-      }
-      const o = (y * image.width + x) * 4;
-      const dr = (data[o] ?? 0) - backgroundColor[0];
-      const dg = (data[o + 1] ?? 0) - backgroundColor[1];
-      const db = (data[o + 2] ?? 0) - backgroundColor[2];
-      if (dr * dr + dg * dg + db * db > thresholdSquared) {
-        foreground++;
-        const r = data[o] ?? 0;
-        const g = data[o + 1] ?? 0;
-        const b = data[o + 2] ?? 0;
-        const luma = luminance(r, g, b);
-        const distance = Math.sqrt(distanceSquared);
-        if (distance <= markRadius) {
-          markLuma += luma;
-          markCount++;
-          markSum[0]! += r;
-          markSum[1]! += g;
-          markSum[2]! += b;
-        } else if (distance >= bodyInnerRadius) {
-          bodyLuma += luma;
-          bodyCount++;
-          bodySum[0]! += r;
-          bodySum[1]! += g;
-          bodySum[2]! += b;
+      if (
+        backgroundChromaReliable &&
+        luma >= test.color.chromaMinLuminance * test.color.shadowMinRatio
+      ) {
+        const ratio = backgroundLuminance > 0 ? luma / backgroundLuminance : Infinity;
+        if (
+          ratio >= test.color.shadowMinRatio &&
+          ratio <= test.color.glareMaxRatio &&
+          chromaDistance([r, g, b], background) <= test.color.shadowChromaTolerance
+        ) {
+          shadow++;
+          continue;
         }
       }
+
+      foreground++;
+      if (inRing) ringForeground++;
+      const distance = Math.sqrt(distanceSquared);
+      const target = distance <= markRadius ? mark : distance >= bodyInnerRadius ? body : null;
+      if (target) {
+        target.count++;
+        target.luma += luma;
+        target.sum[0]! += r;
+        target.sum[1]! += g;
+        target.sum[2]! += b;
+      }
     }
   }
 
-  const bodyLuminance = bodyCount === 0 ? 0 : bodyLuma / bodyCount;
-  const bodyColor = meanColor(bodySum, bodyCount);
+  const pieceColor = meanColor(diskSum, diskCount);
+  const pieceLuminance = diskCount === 0 ? 0 : lumSum / diskCount;
+  const variance =
+    diskCount === 0 ? 0 : Math.max(0, lumSquaredSum / diskCount - pieceLuminance ** 2);
+  const bodyLuminance = body.count === 0 ? 0 : body.luma / body.count;
+  const bodyColor = meanColor(body.sum, body.count);
   return {
-    index: square.index,
-    backgroundColor,
-    backgroundLuminance: luminance(...backgroundColor),
+    index,
+    backgroundColor: background,
+    backgroundLuminance,
     pieceColor,
-    pieceLuminance: luminance(...pieceColor),
-    pieceSaturation: diskCount === 0 ? 0 : diskSaturation / diskCount,
+    pieceLuminance,
+    pieceLuminanceStd: Math.sqrt(variance),
     colorDistance:
       Math.hypot(
-        pieceColor[0] - backgroundColor[0],
-        pieceColor[1] - backgroundColor[1],
-        pieceColor[2] - backgroundColor[2],
+        pieceColor[0] - background[0],
+        pieceColor[1] - background[1],
+        pieceColor[2] - background[2],
       ) / RGB_DIAGONAL,
     foregroundRatio: diskCount === 0 ? 0 : foreground / diskCount,
+    shadowRatio: diskCount === 0 ? 0 : shadow / diskCount,
+    ringForegroundRatio: ringCount === 0 ? 0 : ringForeground / ringCount,
     bodyLuminance,
-    // Without piece pixels in the mark area there is no evidence of a mark.
-    markLuminance: markCount === 0 ? bodyLuminance : markLuma / markCount,
     bodyColor,
-    markColor: markCount === 0 ? bodyColor : meanColor(markSum, markCount),
-  };
-}
-
-function pixelBounds(
-  image: RgbaImage,
-  rect: Rect,
-): { x0: number; y0: number; x1: number; y1: number } {
-  return {
-    x0: Math.max(0, Math.ceil(rect.x)),
-    y0: Math.max(0, Math.ceil(rect.y)),
-    x1: Math.min(image.width, Math.floor(rect.x + rect.width)),
-    y1: Math.min(image.height, Math.floor(rect.y + rect.height)),
+    // Without piece pixels in the mark area there is no evidence of a mark.
+    markLuminance: mark.count === 0 ? bodyLuminance : mark.luma / mark.count,
+    markColor: mark.count === 0 ? bodyColor : meanColor(mark.sum, mark.count),
   };
 }
 

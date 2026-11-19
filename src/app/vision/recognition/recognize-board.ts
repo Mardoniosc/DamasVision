@@ -8,68 +8,103 @@ import {
 } from '../../domain/board/observation';
 import { ObservedPiece, pieceColor } from '../../domain/board/piece';
 import { RgbaImage } from '../perspective';
+import { boardBackground, median, squareBackground } from './background-model';
 import { ClassifierConfig } from './classifier.config';
-import { classifySquare, SquareClassification } from './square-classifier';
+import { gridAlignmentQuality } from './grid-alignment';
+import { lightSquareRoi, squareRegions } from './square-regions';
 import {
   chromaDistance,
   extractSquareFeatures,
   luminance,
+  measureCorners,
+  medianColor,
   Rgb,
-  roiColor,
   SquareFeatures,
 } from './square-features';
+import { explainSquare, SquareTrace } from './square-trace';
+import { colorStage, contrastLogRatio, enforceColorConsistency } from './stages/color.stage';
+import { consolidate } from './stages/consolidate';
+import { occupancyStage } from './stages/occupancy.stage';
+import { pieceTypeStage } from './stages/piece-type.stage';
+import { searchKingMark } from './top-face';
+import { Point2D } from '../../domain/board/geometry';
 
 /** Pieces per side in Brazilian 64-square checkers; more is physically implausible. */
 const MAX_PIECES_PER_SIDE = 12;
 /** A light square brighter/darker than this factor of the board median is suspicious. */
 const LIGHT_SQUARE_MAX_FACTOR = 2;
 
-export interface FrameQualityWarning {
-  readonly code: 'LOW_SHARPNESS' | 'UNDEREXPOSED' | 'OVEREXPOSED';
-  readonly message: string;
+export type FrameIssue =
+  'LOW_SHARPNESS' | 'UNDEREXPOSED' | 'OVEREXPOSED' | 'CALIBRATION_MISALIGNED';
+
+/** Stage A result: advisory frame quality (spec §7: never a hard rejection). */
+export interface FrameAssessment {
+  readonly sharpness: number | null;
+  readonly meanLuminance: number | null;
+  /** Grid alignment, 0..1 (1 = square borders on the grid). */
+  readonly alignmentQuality: number;
+  readonly issues: readonly FrameIssue[];
 }
 
 export interface RecognizeBoardOptions {
   readonly timestamp: number;
   readonly frameId?: string;
-  /** Advisory frame-quality warnings to attach (spec §7: never a hard rejection). */
-  readonly qualityWarnings?: readonly FrameQualityWarning[];
-}
-
-export interface SquareDiagnostics {
-  readonly features: SquareFeatures;
-  readonly lightReference: number;
-  readonly occluded: boolean;
-  readonly classification: SquareClassification;
+  /** Sharpness/exposure measured on the raw rectified image (OpenCV, worker). */
+  readonly quality?: { readonly sharpness: number; readonly meanLuminance: number };
+  /**
+   * Unit vector pointing away from the camera on the rectified board (top-face.ts
+   * `awayFromCamera`, from the calibration); null or absent = seen from above.
+   */
+  readonly awayFromCamera?: Point2D | null;
 }
 
 export interface BoardRecognitionDetails {
   readonly result: BoardRecognitionResult;
-  /** Per playable square, for diagnostics and tuning. */
-  readonly diagnostics: readonly SquareDiagnostics[];
+  readonly traces: readonly SquareTrace[];
+  readonly frame: FrameAssessment;
+  /** Raw features per playable square (tests, tuning). */
+  readonly features: readonly SquareFeatures[];
 }
 
+const ISSUE_MESSAGES: Readonly<Record<FrameIssue, string>> = {
+  LOW_SHARPNESS: 'A imagem parece desfocada ou tremida.',
+  UNDEREXPOSED: 'A imagem está escura demais; melhore a iluminação.',
+  OVEREXPOSED: 'A imagem está clara demais (reflexo ou luz direta).',
+  CALIBRATION_MISALIGNED:
+    'As bordas das casas não coincidem com a grade: a calibração parece deslocada. Use "Reajustar cantos".',
+};
+
 /**
- * Builds a {@link BoardRecognitionResult} from a normalized (rectified) board image
- * (E3-T07). Light squares never hold pieces: they provide the local illumination
- * reference and, together with each square's background, reveal occluding objects.
+ * Recognition pipeline on a rectified board (G3):
+ *  A. frame assessment — sharpness, exposure, grid alignment;
+ *  then per playable square: background model (corners that look like the board),
+ *  features, B. occupancy, C. color, D. piece type, E. consolidation — with a trace.
+ * Light squares never hold pieces: they give the local illumination reference.
  */
 export function recognizeBoard(
   image: RgbaImage,
   config: ClassifierConfig,
   options: RecognizeBoardOptions,
 ): BoardRecognitionDetails {
+  const frame = assessFrame(image, config, options);
   const grid = createBoardGrid(image);
   const lightSquares = grid.filter((square) => !square.isPlayable);
-  const playableSquares = grid.filter((square) => square.isPlayable);
+  const playable = grid.filter((square) => square.isPlayable);
 
-  // Light squares: color, global references, and the ones that look wrong.
+  // Light squares: illumination reference and suspicious squares.
   const lightColor = new Map<SquareIndex, Rgb>(
-    lightSquares.map((square) => [square.index, roiColor(image, square, config.roiInsetRatio)]),
+    lightSquares.map((square) => [
+      square.index,
+      medianColor(image, lightSquareRoi(square, config.roiInsetRatio)),
+    ]),
   );
   const lightLuma = new Map([...lightColor].map(([index, color]) => [index, luminance(...color)]));
   const globalLight = median([...lightLuma.values()]);
-  const typicalLightColor = medianRgb([...lightColor.values()]);
+  const typicalLight: Rgb = [
+    median([...lightColor.values()].map((c) => c[0])),
+    median([...lightColor.values()].map((c) => c[1])),
+    median([...lightColor.values()].map((c) => c[2])),
+  ];
   const suspiciousLight = new Set(
     [...lightColor]
       .filter(([index, color]) => {
@@ -78,73 +113,150 @@ export function recognizeBoard(
           globalLight > 0 && luma > 0 ? Math.max(luma / globalLight, globalLight / luma) : Infinity;
         return (
           factor > LIGHT_SQUARE_MAX_FACTOR ||
-          chromaDistance(color, typicalLightColor) > config.color.chromaMaxDeviation
+          chromaDistance(color, typicalLight) > config.color.lightSquareChromaTolerance
         );
       })
       .map(([index]) => index),
   );
 
-  // Playable squares: features, then the board's typical background, then occlusion.
-  const references = playableSquares.map(
+  // Background model over every playable square's corners.
+  const regions = playable.map((square) => squareRegions(square, config.shape));
+  const references = playable.map(
     (square) => localLightReference(square, lightLuma, suspiciousLight) ?? globalLight,
   );
-  // The foreground threshold scales with the local illumination: in dim light a black
-  // piece and a dark square differ by few gray levels, but by the same relative amount.
-  const features = playableSquares.map((square, i) =>
-    extractSquareFeatures(
-      image,
-      square,
-      config.shape,
-      config.color.pixelForegroundDistance * (references[i] ?? globalLight),
-    ),
-  );
-  const backgroundRatios = features.map((f, i) => {
-    const reference = references[i] ?? 0;
-    return reference > 0 ? f.backgroundLuminance / reference : 0;
-  });
-  const typicalBackgroundRatio = median(backgroundRatios);
-  const typicalBackgroundColor = medianRgb(features.map((f) => f.backgroundColor));
+  const corners = regions.map((region) => measureCorners(image, region));
+  const board = boardBackground(corners, references);
 
   const cells: ObservedPiece[] = Array.from({ length: SQUARE_COUNT }, () => 'EMPTY');
   const confidenceBySquare: number[] = Array.from({ length: SQUARE_COUNT }, () => 1);
   const squares: SquareRecognition[] = [];
-  const diagnostics: SquareDiagnostics[] = [];
-  const occludedSquares: SquareIndex[] = [];
-  const lowContrastSquares: SquareIndex[] = [];
+  const traces: SquareTrace[] = [];
+  const features: SquareFeatures[] = [];
 
-  playableSquares.forEach((square, i) => {
-    const squareFeatures = features[i] as SquareFeatures;
-    const lightReference = references[i] ?? globalLight;
-    const occluded =
-      Math.abs((backgroundRatios[i] ?? 0) - typicalBackgroundRatio) >
-        config.color.occlusionMaxDeviation ||
-      chromaDistance(squareFeatures.backgroundColor, typicalBackgroundColor) >
-        config.color.chromaMaxDeviation;
-    const classification = classifySquare(squareFeatures, { lightReference, occluded }, config);
-    const confidence = round(classification.confidence);
-
-    cells[square.index] = classification.piece;
-    confidenceBySquare[square.index] = confidence;
-    squares.push({ squareIndex: square.index, piece: classification.piece, confidence });
-    diagnostics.push({ features: squareFeatures, lightReference, occluded, classification });
-    if (occluded) occludedSquares.push(square.index);
-    if (classification.limitedBy === 'BOARD_CONTRAST') lowContrastSquares.push(square.index);
+  // Per square: background, features, stage B (occupancy), stage C (color).
+  const measured = playable.map((square, i) => {
+    const reference = references[i] ?? globalLight;
+    const background = squareBackground(corners[i] ?? [], reference, board, config.color);
+    const squareFeatures = extractSquareFeatures(
+      image,
+      square.index,
+      regions[i]!,
+      background.color,
+      {
+        distance: config.color.pixelForegroundDistance * reference,
+        color: config.color,
+      },
+    );
+    const backgroundRelative = reference > 0 ? squareFeatures.backgroundLuminance / reference : 0;
+    const occupancy = occupancyStage(
+      squareFeatures,
+      { visibleCorners: background.visibleCorners, backgroundRelative },
+      config,
+    );
+    const color = occupancy.decision === 'OCCUPIED' ? colorStage(squareFeatures, config) : null;
+    return { reference, background, squareFeatures, backgroundRelative, occupancy, color };
   });
-
-  const warnings = buildWarnings(squares, {
-    unexpected: [...suspiciousLight, ...occludedSquares].sort((a, b) => a - b),
-    lowContrast: lowContrastSquares,
+  // Stage C, board level: light pieces must share their chromaticity.
+  const consistentColors = enforceColorConsistency(
+    measured.map((m) => m.color),
+    measured.map((m) => m.squareFeatures.bodyColor),
+    measured.map((m) => m.squareFeatures.bodyLuminance),
     config,
-    quality: options.qualityWarnings ?? [],
+  );
+
+  playable.forEach((square, i) => {
+    const region = regions[i]!;
+    const { reference, background, squareFeatures, backgroundRelative, occupancy } = measured[i]!;
+    const color = consistentColors[i] ?? null;
+    const away = options.awayFromCamera ?? null;
+    const mark =
+      occupancy.decision === 'OCCUPIED'
+        ? searchKingMark(
+            image,
+            region,
+            away,
+            {
+              body: squareFeatures.bodyColor,
+              background: background.color,
+              light: typicalLight,
+              lightLuminance: reference,
+            },
+            config,
+          )
+        : null;
+    const pieceType = mark ? pieceTypeStage(mark, config) : null;
+    const searchLength = away ? config.shape.topFaceMaxShiftRatio * region.size : 0;
+    const result = consolidate(occupancy, color, pieceType, config);
+    const confidence = round(result.confidence);
+
+    const traceWithoutText: Omit<SquareTrace, 'explanation'> = {
+      squareIndex: square.index,
+      piece: result.piece,
+      confidence,
+      decision: result.decision,
+      reason: result.reason,
+      limitingStage: result.limitingStage,
+      regions: {
+        centerX: round(region.center.x),
+        centerY: round(region.center.y),
+        size: round(region.size),
+        pieceRadius: round(region.pieceRadius),
+        markRadius: round(region.markRadius),
+        backgroundRadius: round(region.backgroundRadius),
+        markSearch: {
+          endX: round(region.center.x + (away?.x ?? 0) * searchLength),
+          endY: round(region.center.y + (away?.y ?? 0) * searchLength),
+          radius: round(config.shape.markSearchRadiusRatio * region.size),
+        },
+      },
+      roi: {
+        cornerMatches: background.cornerMatches,
+        visibleCorners: background.visibleCorners,
+        quality: background.visibleCorners / 4,
+      },
+      occupancy: roundOutcome(occupancy),
+      color: color ? roundOutcome(color) : null,
+      pieceType: pieceType ? roundOutcome(pieceType) : null,
+      features: {
+        foregroundRatio: round(squareFeatures.foregroundRatio),
+        shadowRatio: round(squareFeatures.shadowRatio),
+        ringForegroundRatio: round(squareFeatures.ringForegroundRatio),
+        backgroundLuminance: round(squareFeatures.backgroundLuminance),
+        backgroundRelative: round(backgroundRelative),
+        lightReference: round(reference),
+        pieceLuminance: round(squareFeatures.pieceLuminance),
+        pieceLuminanceStd: round(squareFeatures.pieceLuminanceStd),
+        bodyLuminance: round(squareFeatures.bodyLuminance),
+        markLuminance: round(squareFeatures.markLuminance),
+        contrastRatio: round(Math.exp(contrastLogRatio(squareFeatures))),
+        markCoverage: mark ? round(mark.coverage) : 0,
+        markOffset: mark?.offset ? { x: round(mark.offset.x), y: round(mark.offset.y) } : null,
+        backgroundColor: squareFeatures.backgroundColor.map(Math.round),
+        bodyColor: squareFeatures.bodyColor.map(Math.round),
+      },
+    };
+    const trace: SquareTrace = {
+      ...traceWithoutText,
+      explanation: explainSquare(traceWithoutText, config),
+    };
+
+    cells[square.index] = result.piece;
+    confidenceBySquare[square.index] = confidence;
+    squares.push({ squareIndex: square.index, piece: result.piece, confidence });
+    traces.push(trace);
+    features.push(squareFeatures);
   });
+
+  const obstructed = traces
+    .filter((t) => t.reason === 'ROI_OBSTRUCTED' || t.reason === 'INCONSISTENT_PIECE_COLOR')
+    .map((t) => t.squareIndex);
+  const warnings = buildWarnings(squares, traces, frame, [...suspiciousLight, ...obstructed]);
   const overallConfidence = round(
     squares.reduce((sum, s) => sum + s.confidence, 0) / squares.length,
   );
-  const status: RecognitionStatus =
-    squares.some((s) => s.piece === 'UNKNOWN') ||
-    squares.some((s) => s.confidence < config.confidence.acceptable)
-      ? 'UNCERTAIN'
-      : 'SUCCESS';
+  const status: RecognitionStatus = traces.some((t) => t.decision !== 'ACCEPT')
+    ? 'UNCERTAIN'
+    : 'SUCCESS';
 
   return {
     result: {
@@ -160,7 +272,32 @@ export function recognizeBoard(
       warnings,
       timestamp: options.timestamp,
     },
-    diagnostics,
+    traces,
+    frame,
+    features,
+  };
+}
+
+/** Stage A: advisory frame assessment. */
+export function assessFrame(
+  image: RgbaImage,
+  config: ClassifierConfig,
+  options: Pick<RecognizeBoardOptions, 'quality'>,
+): FrameAssessment {
+  const alignmentQuality = round(gridAlignmentQuality(image));
+  const issues: FrameIssue[] = [];
+  const quality = options.quality;
+  if (quality && quality.sharpness < config.shape.minSharpness) issues.push('LOW_SHARPNESS');
+  if (quality && quality.meanLuminance < config.color.underexposedMaxLuminance)
+    issues.push('UNDEREXPOSED');
+  if (quality && quality.meanLuminance > config.color.overexposedMinLuminance)
+    issues.push('OVEREXPOSED');
+  if (alignmentQuality < config.shape.minAlignmentQuality) issues.push('CALIBRATION_MISALIGNED');
+  return {
+    sharpness: quality ? round(quality.sharpness) : null,
+    meanLuminance: quality ? round(quality.meanLuminance) : null,
+    alignmentQuality,
+    issues,
   };
 }
 
@@ -189,12 +326,9 @@ function localLightReference(
 
 function buildWarnings(
   squares: readonly SquareRecognition[],
-  context: {
-    unexpected: readonly SquareIndex[];
-    lowContrast: readonly SquareIndex[];
-    config: ClassifierConfig;
-    quality: readonly FrameQualityWarning[];
-  },
+  traces: readonly SquareTrace[],
+  frame: FrameAssessment,
+  unexpected: readonly SquareIndex[],
 ): RecognitionWarning[] {
   const warnings: RecognitionWarning[] = [];
   const unknown = squares.filter((s) => s.piece === 'UNKNOWN').map((s) => s.squareIndex);
@@ -205,9 +339,7 @@ function buildWarnings(
       affectedSquares: unknown,
     });
   }
-  const low = squares
-    .filter((s) => s.piece !== 'UNKNOWN' && s.confidence < context.config.confidence.acceptable)
-    .map((s) => s.squareIndex);
+  const low = traces.filter((t) => t.decision === 'WARN').map((t) => t.squareIndex);
   if (low.length > 0) {
     warnings.push({
       code: 'LOW_CONFIDENCE',
@@ -215,20 +347,23 @@ function buildWarnings(
       affectedSquares: low,
     });
   }
-  if (context.unexpected.length > 0) {
+  if (unexpected.length > 0) {
     warnings.push({
       code: 'UNEXPECTED_OBJECTS',
       message:
         'Há algo sobre o tabuleiro (mão, objeto ou peça fora do lugar) ou a calibração se deslocou.',
-      affectedSquares: context.unexpected,
+      affectedSquares: [...new Set(unexpected)].sort((a, b) => a - b),
     });
   }
-  if (context.lowContrast.length > 0) {
+  const lowContrast = traces
+    .filter((t) => t.reason === 'LOW_BOARD_CONTRAST')
+    .map((t) => t.squareIndex);
+  if (lowContrast.length > 0) {
     warnings.push({
       code: 'LOW_BOARD_CONTRAST',
       message:
         'As casas escuras estão escuras demais para distinguir peças pretas; confira essas casas.',
-      affectedSquares: context.lowContrast,
+      affectedSquares: lowContrast,
     });
   }
   for (const color of ['WHITE', 'BLACK'] as const) {
@@ -240,25 +375,14 @@ function buildWarnings(
       });
     }
   }
-  warnings.push(...context.quality);
+  for (const issue of frame.issues) {
+    warnings.push({ code: issue, message: ISSUE_MESSAGES[issue] });
+  }
   return warnings;
 }
 
-function median(values: readonly number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 1
-    ? (sorted[middle] as number)
-    : ((sorted[middle - 1] as number) + (sorted[middle] as number)) / 2;
-}
-
-function medianRgb(colors: readonly Rgb[]): Rgb {
-  return [
-    median(colors.map((c) => c[0])),
-    median(colors.map((c) => c[1])),
-    median(colors.map((c) => c[2])),
-  ];
+function roundOutcome<T extends { confidence: number }>(outcome: T): T {
+  return { ...outcome, confidence: round(outcome.confidence) };
 }
 
 function round(value: number): number {

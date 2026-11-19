@@ -151,6 +151,14 @@ describe('CalibrationPageComponent (E2)', () => {
       element.querySelector('[data-testid="normalized-preview"] canvas')?.getAttribute('role'),
     ).toBe('img');
     expect(workers[0]?.sent('RECTIFY_FRAME')).toHaveLength(1);
+
+    // G3: the preview draws the regions the classifier uses (800 px board → 100 px squares).
+    const preview = element.querySelector('[data-testid="normalized-preview"]') as HTMLElement;
+    const piece = preview.querySelectorAll('[data-region="piece"]');
+    expect(piece).toHaveLength(32);
+    expect(piece[0]?.getAttribute('r')).toBe('30');
+    expect(preview.querySelector('[data-region="background"]')?.getAttribute('r')).toBe('47');
+    expect(preview.querySelectorAll('[data-region="light-reference"]')).toHaveLength(32);
   });
 
   it('saves the calibration and shows it as active', async () => {

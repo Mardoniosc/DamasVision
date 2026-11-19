@@ -193,9 +193,13 @@ describe('recognition pipeline (integration, real OpenCV)', () => {
         }
         const expected = startingPosition();
 
+        // The G3 background model tolerates most of the drift (the E3 baseline had ≥ 8 UNKNOWN)…
         const beforeScore = scoreRecognition(expected, before.result.board.cells);
-        expect(beforeScore.wrong).toBe(0);
-        expect(beforeScore.unknown).toBeGreaterThanOrEqual(8);
+        expect(beforeScore.errors).toEqual([]);
+        // …stage A detects it on the frame read with the imprecise corners…
+        expect(before.result.warnings.map((w) => w.code)).toContain('CALIBRATION_MISALIGNED');
+        // …and no longer after the automatic adjustment.
+        expect(after.result.warnings.map((w) => w.code)).not.toContain('CALIBRATION_MISALIGNED');
 
         const afterScore = scoreRecognition(expected, after.result.board.cells);
         expect(afterScore.errors).toEqual([]);

@@ -35,17 +35,18 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 
 ## E3 — Recognition
 
-| Task   | Description                                    | Status                |
-| ------ | ---------------------------------------------- | --------------------- |
-| E3-T01 | Typed configuration                            | DONE                  |
-| E3-T02 | ROI extraction                                 | DONE                  |
-| E3-T03 | Feature extraction                             | DONE                  |
-| E3-T04 | Empty classification                           | DONE                  |
-| E3-T05 | Piece color classification and UNKNOWN         | DONE                  |
-| E3-T06 | King baseline (marked kings) / manual fallback | DONE                  |
-| E3-T07 | Observation assembly / confidence / warnings   | DONE                  |
-| E3-T08 | Recognition overlay and correction             | DONE                  |
-| **G3** | Measurable recognition and correction workflow | **AWAITING APPROVAL** |
+| Task   | Description                                                                                                                                  | Status                |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| E3-T01 | Typed configuration                                                                                                                          | DONE                  |
+| E3-T02 | ROI extraction                                                                                                                               | DONE                  |
+| E3-T03 | Feature extraction                                                                                                                           | DONE                  |
+| E3-T04 | Empty classification                                                                                                                         | DONE                  |
+| E3-T05 | Piece color classification and UNKNOWN                                                                                                       | DONE                  |
+| E3-T06 | King baseline (marked kings) / manual fallback                                                                                               | DONE                  |
+| E3-T07 | Observation assembly / confidence / warnings                                                                                                 | DONE                  |
+| E3-T08 | Recognition overlay and correction                                                                                                           | DONE                  |
+| G3-R   | G3 refactor: staged pipeline, traces, diagnostic mode, top-face kings, piece-shaped occupancy, temporal stabilization, metrics (ADR-030–036) | DONE                  |
+| **G3** | Measurable recognition and correction workflow                                                                                               | APPROVED (2026-11-19) |
 
 ## Later epics
 

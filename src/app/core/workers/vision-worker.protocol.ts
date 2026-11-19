@@ -2,7 +2,11 @@ import { CalibrationCorners, CalibrationIssue, CORNER_NAMES } from '../../domain
 import { Homography } from '../../domain/board/homography';
 import { BoardRecognitionResult, isBoardObservation } from '../../domain/board/observation';
 import { isObservedPiece } from '../../domain/board/piece';
+import type { FrameAssessment } from '../../vision/recognition/recognize-board';
+import type { SquareTrace } from '../../vision/recognition/square-trace';
 import { VisionConfig } from '../../vision/vision.config';
+
+export type { FrameAssessment, SquareTrace };
 
 /**
  * Vision worker protocol (docs/execution-specification.md §9).
@@ -18,7 +22,13 @@ export type VisionWorkerRequest =
       readonly height: number;
     }
   | { readonly type: 'RECTIFY_FRAME'; readonly frame: ImageBitmap; readonly frameId: string }
-  | { readonly type: 'PROCESS_FRAME'; readonly frame: ImageBitmap; readonly frameId: string }
+  | {
+      readonly type: 'PROCESS_FRAME';
+      readonly frame: ImageBitmap;
+      readonly frameId: string;
+      /** Extension (ADR-030): also return the rectified image for the diagnostic view. */
+      readonly debug?: boolean;
+    }
   | {
       /** Extension (ADR-027): snap canonical corners to the square borders in `frame`. */
       readonly type: 'REFINE_CALIBRATION';
@@ -28,16 +38,6 @@ export type VisionWorkerRequest =
     }
   | { readonly type: 'RESET' }
   | { readonly type: 'DISPOSE' };
-
-/** Why a square got its confidence (the weakest decision); for UI hints and samples. */
-export type SquareReason = 'OCCLUSION' | 'BOARD_CONTRAST' | 'PRESENCE' | 'COLOR' | 'KING' | 'NONE';
-
-export interface SquareDiagnostic {
-  readonly squareIndex: number;
-  readonly reason: SquareReason;
-  readonly foregroundRatio: number;
-  readonly occluded: boolean;
-}
 
 export interface CalibrationResult {
   readonly valid: boolean;
@@ -74,8 +74,12 @@ export type VisionWorkerResponse =
       readonly type: 'RECOGNITION_RESULT';
       readonly result: BoardRecognitionResult;
       readonly frameId: string;
-      /** Extension (ADR-028): per playable square diagnostics. */
-      readonly diagnostics?: readonly SquareDiagnostic[];
+      /** Extension (ADR-030): how each playable square was classified. */
+      readonly traces?: readonly SquareTrace[];
+      /** Extension (ADR-030): stage A frame assessment. */
+      readonly frame?: FrameAssessment;
+      /** Extension (ADR-030): rectified, smoothed board image (debug requests only). */
+      readonly debugImage?: ImageBitmap;
     }
   | {
       readonly type: 'ERROR';
@@ -159,27 +163,33 @@ export function isBoardRecognitionResult(value: unknown): value is BoardRecognit
   );
 }
 
-const SQUARE_REASONS: readonly string[] = [
-  'OCCLUSION',
-  'BOARD_CONTRAST',
-  'PRESENCE',
-  'COLOR',
-  'KING',
-  'NONE',
-];
+const DECISIONS = ['ACCEPT', 'WARN', 'RETRY'];
 
-export function isSquareDiagnostics(value: unknown): value is readonly SquareDiagnostic[] {
+/** Structural check of the fields the UI relies on. */
+export function isSquareTraces(value: unknown): value is readonly SquareTrace[] {
   return (
     Array.isArray(value) &&
     value.every(
       (item) =>
         isRecord(item) &&
         isFiniteNumber(item['squareIndex']) &&
+        isObservedPiece(item['piece']) &&
+        isFiniteNumber(item['confidence']) &&
+        typeof item['decision'] === 'string' &&
+        DECISIONS.includes(item['decision']) &&
         typeof item['reason'] === 'string' &&
-        SQUARE_REASONS.includes(item['reason']) &&
-        isFiniteNumber(item['foregroundRatio']) &&
-        typeof item['occluded'] === 'boolean',
+        typeof item['explanation'] === 'string' &&
+        isRecord(item['regions']) &&
+        isRecord(item['roi']) &&
+        isRecord(item['occupancy']) &&
+        isRecord(item['features']),
     )
+  );
+}
+
+export function isFrameAssessment(value: unknown): value is FrameAssessment {
+  return (
+    isRecord(value) && isFiniteNumber(value['alignmentQuality']) && Array.isArray(value['issues'])
   );
 }
 
@@ -215,7 +225,9 @@ export function isVisionWorkerResponse(value: unknown): value is VisionWorkerRes
       return (
         isNonEmptyString(value['frameId']) &&
         isBoardRecognitionResult(value['result']) &&
-        (value['diagnostics'] === undefined || isSquareDiagnostics(value['diagnostics']))
+        (value['traces'] === undefined || isSquareTraces(value['traces'])) &&
+        (value['frame'] === undefined || isFrameAssessment(value['frame'])) &&
+        (value['debugImage'] === undefined || isBitmapLike(value['debugImage']))
       );
     case 'ERROR':
       return typeof value['code'] === 'string' && typeof value['message'] === 'string';

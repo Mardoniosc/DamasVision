@@ -4,6 +4,7 @@ import { recognizeBoard } from '../../src/app/vision/recognition/recognize-board
 import { DEFAULT_VISION_CONFIG } from '../../src/app/vision/vision.config';
 import {
   midgamePosition,
+  REAL_SET_BLUE_BOARD,
   RenderOptions,
   renderNormalizedBoard,
   scoreRecognition,
@@ -17,6 +18,8 @@ import {
  * Synthetic data does not replace the physical test matrix (E8-T02).
  */
 const config = resolveClassifierConfig(DEFAULT_VISION_CONFIG);
+/** Rendered boards are seen from the canonical bottom: tall tops project upwards. */
+const UP = { x: 0, y: -1 };
 
 const SCENARIOS: readonly { name: string; position: () => Piece[]; options: RenderOptions }[] = [
   { name: 'ideal, starting position', position: startingPosition, options: {} },
@@ -48,6 +51,28 @@ const SCENARIOS: readonly { name: string; position: () => Piece[]; options: Rend
     position: midgamePosition,
     options: { gradient: [0.75, 1.1], noise: 8, jitter: 0.06, seed: 11 },
   },
+  // G3: tall pieces seen obliquely — the king mark is on the displaced top face.
+  { name: 'tall pieces, kings', position: midgamePosition, options: { pieceHeight: 0.3 } },
+  {
+    name: 'tall pieces, kings, off-center',
+    position: midgamePosition,
+    options: { pieceHeight: 0.35, jitter: 0.08, seed: 4 },
+  },
+  {
+    name: 'real-set model (blue board), kings',
+    position: midgamePosition,
+    options: REAL_SET_BLUE_BOARD,
+  },
+  {
+    name: 'real-set model, kings, dim light + noise',
+    position: midgamePosition,
+    options: { ...REAL_SET_BLUE_BOARD, brightness: 0.6, noise: 8 },
+  },
+  {
+    name: 'real-set model, kings, strong cast shadows',
+    position: midgamePosition,
+    options: { ...REAL_SET_BLUE_BOARD, castShadow: { dx: -0.2, dy: 0.3, factor: 0.35 } },
+  },
 ];
 
 describe('recognition accuracy on synthetic boards', () => {
@@ -56,7 +81,10 @@ describe('recognition accuracy on synthetic boards', () => {
       const expected = scenario.position();
       const image = renderNormalizedBoard(expected, scenario.options);
 
-      const { result } = recognizeBoard(image, config, { timestamp: 0 });
+      const { result } = recognizeBoard(image, config, {
+        timestamp: 0,
+        awayFromCamera: scenario.options.pieceHeight ? UP : null,
+      });
       const score = scoreRecognition(expected, result.board.cells);
 
       expect(score.errors, JSON.stringify(score.errors)).toEqual([]);
@@ -121,10 +149,8 @@ describe('recognition accuracy on synthetic boards', () => {
     expect(result.warnings.map((w) => w.code)).toContain('UNEXPECTED_OBJECTS');
     expect(result.status).toBe('UNCERTAIN');
     const score = scoreRecognition(expected, result.board.cells);
-    // Rows 3–4 are covered: those squares may be wrong pieces or UNKNOWN, but rows 0–2 and 5–7 must be intact.
-    const intact = score.errors.filter(
-      (e) => Math.floor(e.index / 8) < 3 || Math.floor(e.index / 8) > 4,
-    );
-    expect(intact).toEqual([]);
+    // G3: the covered empty rows 3–4 become UNKNOWN — never invented pieces.
+    expect(score.errors, JSON.stringify(score.errors)).toEqual([]);
+    expect(score.unknown).toBeGreaterThan(0);
   });
 });

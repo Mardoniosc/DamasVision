@@ -1,4 +1,3 @@
-import { SquareDiagnostic, isSquareDiagnostics } from '../../core/workers/vision-worker.protocol';
 import { SQUARE_COUNT } from '../../domain/board/board';
 import {
   CalibrationCorners,
@@ -32,9 +31,51 @@ export interface LabeledSample {
   readonly recognized: {
     readonly cells: readonly ObservedPiece[];
     readonly confidenceBySquare: readonly number[];
-    readonly diagnostics: readonly SquareDiagnostic[];
+    /** Worker diagnostics at export time (per-square traces; shape varies by app version). */
+    readonly diagnostics: readonly unknown[];
   };
   readonly visionConfig: VisionConfig;
+  /** Free text: setup, lighting, anything notable (dataset metadata, G3). */
+  readonly description?: string;
+  /** Condition tags, see SAMPLE_CONDITIONS. */
+  readonly conditions?: readonly SampleCondition[];
+}
+
+/** Conditions used to slice the evaluation metrics (G3 dataset). */
+export const SAMPLE_CONDITIONS = [
+  'LUZ_NATURAL',
+  'LUZ_ARTIFICIAL',
+  'SOMBRAS',
+  'REFLEXOS',
+  'DAMAS',
+  'OBSTRUCAO',
+  'PECAS_DESLOCADAS',
+  'TABULEIRO_VAZIO',
+  'POUCAS_PECAS',
+  'MUITAS_PECAS',
+  'ANGULO_ALTERNATIVO',
+] as const;
+export type SampleCondition = (typeof SAMPLE_CONDITIONS)[number];
+
+/** pt-BR labels of the conditions, for the export form. */
+export const SAMPLE_CONDITION_LABELS: Readonly<Record<SampleCondition, string>> = {
+  LUZ_NATURAL: 'Luz natural',
+  LUZ_ARTIFICIAL: 'Luz artificial',
+  SOMBRAS: 'Sombras',
+  REFLEXOS: 'Reflexos',
+  DAMAS: 'Damas',
+  OBSTRUCAO: 'Obstrução (mão, objeto)',
+  PECAS_DESLOCADAS: 'Peças fora do centro',
+  TABULEIRO_VAZIO: 'Tabuleiro vazio',
+  POUCAS_PECAS: 'Poucas peças',
+  MUITAS_PECAS: 'Muitas peças',
+  ANGULO_ALTERNATIVO: 'Ângulo diferente',
+};
+
+/** Dataset metadata the user adds before exporting a sample. */
+export interface SampleMetadata {
+  readonly description?: string;
+  readonly conditions?: readonly SampleCondition[];
 }
 
 export function isLabeledSample(value: unknown): value is LabeledSample {
@@ -58,7 +99,7 @@ export function isLabeledSample(value: unknown): value is LabeledSample {
     labels.every(isPiece) &&
     Array.isArray(recognized?.['cells']) &&
     (recognized['cells'] as unknown[]).every(isObservedPiece) &&
-    isSquareDiagnostics(recognized['diagnostics']) &&
+    Array.isArray(recognized['diagnostics']) &&
     isVisionConfig(sample['visionConfig'])
   );
 }

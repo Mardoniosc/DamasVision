@@ -1,0 +1,330 @@
+<section class="space-y-4" aria-labelledby="debug-heading" data-testid="recognition-debug">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h2 id="debug-heading" class="font-semibold">Diagnóstico do reconhecimento</h2>
+    <ul class="flex flex-wrap gap-3 text-xs" aria-label="Legenda">
+      @for (item of legend; track item.label) {
+        <li class="flex items-center gap-1">
+          <span class="inline-block h-3 w-3 rounded-sm" [style.background]="item.color"></span>
+          {{ item.label }}
+        </li>
+      }
+    </ul>
+  </div>
+
+  @if (frame(); as assessment) {
+    <dl
+      class="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-stone-200 bg-white p-3 text-xs sm:grid-cols-4"
+      data-testid="frame-assessment"
+    >
+      <div>
+        <dt class="text-stone-500">Alinhamento da grade</dt>
+        <dd [class.text-red-700]="assessment.alignmentQuality < config().shape.minAlignmentQuality">
+          {{ assessment.alignmentQuality | number: '1.2-2' }} (mín.
+          {{ config().shape.minAlignmentQuality }})
+        </dd>
+      </div>
+      <div>
+        <dt class="text-stone-500">Nitidez</dt>
+        <dd>{{ assessment.sharpness ?? '—' }} (mín. {{ config().shape.minSharpness }})</dd>
+      </div>
+      <div>
+        <dt class="text-stone-500">Brilho médio</dt>
+        <dd>{{ assessment.meanLuminance ?? '—' }}</dd>
+      </div>
+      <div>
+        <dt class="text-stone-500">Problemas</dt>
+        <dd>{{ assessment.issues.length ? assessment.issues.join(', ') : 'nenhum' }}</dd>
+      </div>
+    </dl>
+  }
+
+  <p class="text-xs text-stone-600" data-testid="debug-counts">
+    {{ counts().EMPTY }} vazias · {{ counts().PIECE }} peças · {{ counts().WARN }} baixa confiança ·
+    {{ counts().UNKNOWN }} desconhecidas · {{ counts().OBSTRUCTED }} obstruídas — clique numa casa
+    para inspecioná-la; Shift + clique para comparar com outra.
+  </p>
+
+  <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div class="relative aspect-square w-full overflow-hidden rounded-lg bg-stone-900">
+      <canvas
+        #board
+        class="absolute inset-0 h-full w-full"
+        role="img"
+        aria-label="Tabuleiro retificado usado pelo classificador"
+      ></canvas>
+      <svg
+        class="absolute inset-0 h-full w-full"
+        [attr.viewBox]="'0 0 ' + size().width + ' ' + size().height"
+        data-testid="debug-overlay"
+      >
+        @for (square of squares(); track square.trace.squareIndex) {
+          <g
+            class="cursor-pointer"
+            role="button"
+            tabindex="0"
+            [attr.aria-label]="square.trace.explanation"
+            [attr.aria-pressed]="isSelected(square.trace.squareIndex)"
+            [attr.data-debug-square]="square.trace.squareIndex"
+            (click)="select(square.trace.squareIndex, $event)"
+            (keydown.enter)="select(square.trace.squareIndex, $event)"
+          >
+            <rect
+              [attr.x]="square.trace.regions.centerX - square.trace.regions.size / 2"
+              [attr.y]="square.trace.regions.centerY - square.trace.regions.size / 2"
+              [attr.width]="square.trace.regions.size"
+              [attr.height]="square.trace.regions.size"
+              [attr.fill]="square.color"
+              [attr.fill-opacity]="isSelected(square.trace.squareIndex) ? 0.35 : 0.12"
+              [attr.stroke]="isSelected(square.trace.squareIndex) ? 'white' : square.color"
+              [attr.stroke-width]="isSelected(square.trace.squareIndex) ? 3 : 1.5"
+              vector-effect="non-scaling-stroke"
+            />
+            <circle
+              [attr.cx]="square.trace.regions.centerX"
+              [attr.cy]="square.trace.regions.centerY"
+              [attr.r]="square.trace.regions.pieceRadius"
+              fill="none"
+              [attr.stroke]="square.color"
+              stroke-width="1.5"
+              vector-effect="non-scaling-stroke"
+            />
+            <circle
+              [attr.cx]="square.trace.regions.centerX"
+              [attr.cy]="square.trace.regions.centerY"
+              [attr.r]="square.trace.regions.backgroundRadius"
+              fill="none"
+              stroke="white"
+              stroke-opacity="0.5"
+              stroke-dasharray="4 4"
+              vector-effect="non-scaling-stroke"
+            />
+            @if (square.trace.pieceType) {
+              <line
+                [attr.x1]="square.trace.regions.centerX"
+                [attr.y1]="square.trace.regions.centerY"
+                [attr.x2]="square.trace.regions.markSearch.endX"
+                [attr.y2]="square.trace.regions.markSearch.endY"
+                stroke="#f59e0b"
+                stroke-opacity="0.25"
+                stroke-linecap="round"
+                [attr.stroke-width]="square.trace.regions.markSearch.radius * 2"
+                data-region="mark-search"
+              />
+            }
+            @for (offset of cornerOffsets; track $index) {
+              <rect
+                [attr.x]="
+                  square.trace.regions.centerX + (offset[0] * square.trace.regions.size) / 2 - 4
+                "
+                [attr.y]="
+                  square.trace.regions.centerY + (offset[1] * square.trace.regions.size) / 2 - 4
+                "
+                width="8"
+                height="8"
+                [attr.fill]="square.trace.roi.cornerMatches[$index] ? '#22c55e' : '#ef4444'"
+              />
+            }
+            <text
+              [attr.x]="square.trace.regions.centerX"
+              [attr.y]="square.trace.regions.centerY + square.trace.regions.size * 0.42"
+              text-anchor="middle"
+              [attr.font-size]="square.trace.regions.size * 0.16"
+              fill="white"
+              stroke="black"
+              stroke-width="3"
+              paint-order="stroke"
+              font-weight="600"
+            >
+              {{ square.label }}
+            </text>
+          </g>
+        }
+      </svg>
+    </div>
+
+    <div class="space-y-4" data-testid="square-inspector">
+      @for (item of inspected(); track item.trace.squareIndex) {
+        <article class="space-y-3 rounded-lg border border-stone-200 bg-white p-3 text-xs">
+          <header class="flex items-start gap-3">
+            <div class="relative shrink-0" [style.width.px]="cropSize" [style.height.px]="cropSize">
+              <canvas
+                #crop
+                class="absolute inset-0 rounded"
+                role="img"
+                [attr.aria-label]="'Região da casa ' + item.name"
+              ></canvas>
+              <svg
+                class="absolute inset-0"
+                [attr.viewBox]="'0 0 ' + cropSize + ' ' + cropSize"
+                aria-hidden="true"
+              >
+                <circle
+                  [attr.cx]="cropGeometry(item.trace).center"
+                  [attr.cy]="cropGeometry(item.trace).center"
+                  [attr.r]="cropGeometry(item.trace).piece"
+                  fill="none"
+                  stroke="#3b82f6"
+                  stroke-width="2"
+                />
+                <circle
+                  [attr.cx]="cropGeometry(item.trace).center"
+                  [attr.cy]="cropGeometry(item.trace).center"
+                  [attr.r]="cropGeometry(item.trace).mark"
+                  fill="none"
+                  stroke="#f59e0b"
+                  stroke-width="2"
+                />
+                <circle
+                  [attr.cx]="cropGeometry(item.trace).center"
+                  [attr.cy]="cropGeometry(item.trace).center"
+                  [attr.r]="cropGeometry(item.trace).background"
+                  fill="none"
+                  stroke="white"
+                  stroke-dasharray="4 4"
+                />
+              </svg>
+            </div>
+            <div class="space-y-1">
+              <p class="text-sm font-semibold" data-testid="inspected-name">Casa {{ item.name }}</p>
+              <p data-testid="inspected-explanation">{{ item.trace.explanation }}</p>
+              <p class="text-stone-500">
+                Azul: região da peça · laranja: marca de dama · tracejado: início dos cantos
+                (fundo).
+              </p>
+            </div>
+          </header>
+
+          <table class="w-full">
+            <caption class="text-left font-medium">
+              Etapas
+            </caption>
+            <tbody>
+              <tr>
+                <th class="text-left font-normal text-stone-500">B · ocupação</th>
+                <td>
+                  {{ item.trace.occupancy.decision }} ({{
+                    item.trace.occupancy.confidence | number: '1.2-2'
+                  }}) · {{ item.trace.occupancy.reason }}
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">C · cor</th>
+                <td>
+                  @if (item.trace.color; as color) {
+                    {{ color.decision }} ({{ color.confidence | number: '1.2-2' }}) ·
+                    {{ color.reason }}
+                  } @else {
+                    não avaliada (casa não ocupada)
+                  }
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">D · tipo</th>
+                <td>
+                  @if (item.trace.pieceType; as type) {
+                    {{ type.decision }} ({{ type.confidence | number: '1.2-2' }}) ·
+                    {{ type.reason }}
+                  } @else {
+                    não avaliado
+                  }
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">E · resultado</th>
+                <td>
+                  {{ item.trace.piece }} ({{ item.trace.confidence | number: '1.2-2' }}) ·
+                  {{ item.trace.decision }} · limitado por {{ item.trace.limitingStage }}
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Temporal</th>
+                <td>{{ votesText(item.stable) }}</td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">ROI</th>
+                <td>
+                  {{ item.trace.roi.visibleCorners }}/4 cantos com cor de tabuleiro (qualidade
+                  {{ item.trace.roi.quality | number: '1.2-2' }})
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table class="w-full" data-testid="inspected-features">
+            <caption class="text-left font-medium">
+              Características
+            </caption>
+            <tbody>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Foreground</th>
+                <td>
+                  {{ item.trace.features.foregroundRatio | number: '1.3-3' }} (vazia ≤
+                  {{ config().shape.emptyMaxRatio }}, ocupada ≥
+                  {{ config().shape.presenceMinRatio }})
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Sombra/reflexo descartado</th>
+                <td>{{ item.trace.features.shadowRatio | number: '1.3-3' }}</td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Borda do disco ocupada</th>
+                <td>
+                  {{ item.trace.features.ringForegroundRatio | number: '1.3-3' }} (peça ≥
+                  {{ config().shape.occupancyRingMinRatio }})
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Fundo (RGB · lum · rel.)</th>
+                <td>
+                  {{ item.trace.features.backgroundColor.join(', ') }} ·
+                  {{ item.trace.features.backgroundLuminance | number: '1.2-2' }} ·
+                  {{ item.trace.features.backgroundRelative | number: '1.2-2' }} (mín.
+                  {{ config().color.darkSquareMinRelativeLuminance }})
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Luz local (casas claras)</th>
+                <td>{{ item.trace.features.lightReference | number: '1.2-2' }}</td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Corpo (RGB · lum)</th>
+                <td>
+                  {{ item.trace.features.bodyColor.join(', ') }} ·
+                  {{ item.trace.features.bodyLuminance | number: '1.2-2' }}
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Razão corpo/fundo</th>
+                <td>
+                  {{ item.trace.features.contrastRatio | number: '1.2-2' }} (preta ≤
+                  {{ config().color.blackMaxContrastRatio }}, branca ≥
+                  {{ config().color.whiteMinContrastRatio }})
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Marca de dama (área)</th>
+                <td>
+                  {{ item.trace.features.markCoverage | number: '1.2-2' }} da área esperada (dama ≥
+                  {{ config().color.kingMarkMinCoverage }})
+                  @if (item.trace.features.markOffset; as offset) {
+                    · em ({{ offset.x | number: '1.2-2' }}, {{ offset.y | number: '1.2-2' }}) casas
+                  }
+                </td>
+              </tr>
+              <tr>
+                <th class="text-left font-normal text-stone-500">Região central (lum · desvio)</th>
+                <td>
+                  {{ item.trace.features.pieceLuminance | number: '1.2-2' }} ·
+                  {{ item.trace.features.pieceLuminanceStd | number: '1.2-2' }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      } @empty {
+        <p class="text-sm text-stone-500">Nenhuma casa selecionada.</p>
+      }
+    </div>
+  </div>
+</section>

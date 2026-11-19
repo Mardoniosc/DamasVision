@@ -103,10 +103,14 @@ describe('RecognitionPageComponent (E3-T08)', () => {
   it('shows the live reading, its uncertainty and the overlay', async () => {
     saveProfile();
     const { element, square, text, stable } = await render();
-    await vi.waitFor(async () => {
-      await stable();
-      expect(square(17)?.getAttribute('data-piece')).toBe('UNKNOWN');
-    });
+    await vi.waitFor(
+      async () => {
+        await stable();
+        expect(square(1)?.getAttribute('data-piece')).toBe('BLACK');
+      },
+      { timeout: 3000 },
+    );
+    expect(square(17)?.getAttribute('data-piece')).toBe('UNKNOWN');
 
     expect(text('recognition-status')).toBe('Leitura com incertezas');
     expect(text('unknown-count')).toBe('1');
@@ -120,10 +124,13 @@ describe('RecognitionPageComponent (E3-T08)', () => {
   it('corrects an UNKNOWN square through the palette and confirms the position', async () => {
     saveProfile();
     const { button, square, text, stable } = await render();
-    await vi.waitFor(async () => {
-      await stable();
-      expect(button('Pausar e corrigir')?.disabled).toBe(false);
-    });
+    await vi.waitFor(
+      async () => {
+        await stable();
+        expect(square(1)?.getAttribute('data-piece')).toBe('BLACK');
+      },
+      { timeout: 3000 },
+    );
 
     button('Pausar e corrigir')?.click();
     await stable();
@@ -140,6 +147,34 @@ describe('RecognitionPageComponent (E3-T08)', () => {
     await stable();
 
     expect(text('confirmed')).toContain('12 brancas e 12 pretas');
+  });
+
+  it('diagnostic mode asks the worker for debug output and shows the diagnostic panel', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    saveProfile();
+    const { element, stable } = await render();
+    await vi.waitFor(async () => {
+      await stable();
+      expect(element.querySelector('[data-testid="debug-toggle"]')).not.toBeNull();
+    });
+    expect(element.querySelector('[data-testid="recognition-debug"]')).toBeNull();
+
+    const toggle = element.querySelector<HTMLInputElement>('[data-testid="debug-toggle"]');
+    toggle?.click();
+    await stable();
+
+    expect(element.querySelector('[data-testid="recognition-debug"]')).not.toBeNull();
+    const sentBefore = workers[0]?.sent('PROCESS_FRAME').length ?? 0;
+    await vi.waitFor(async () => {
+      await stable();
+      const messages = workers[0]?.sent('PROCESS_FRAME') ?? [];
+      expect(messages.length).toBeGreaterThan(sentBefore);
+      expect(messages.at(-1)).toMatchObject({ debug: true });
+    });
+
+    toggle?.click();
+    await stable();
+    expect(element.querySelector('[data-testid="recognition-debug"]')).toBeNull();
   });
 
   it('releases the camera and terminates the worker when leaving', async () => {

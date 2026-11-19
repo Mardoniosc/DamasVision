@@ -1,5 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 import { BOARD_SIZE, isPlayableSquare, SQUARE_COUNT } from '../../../domain/board/board';
+import { FILE_LETTERS, squareName } from '../../../domain/board/board-notation';
 import { ObservedPiece } from '../../../domain/board/piece';
 
 const PIECE_LABELS: Readonly<Record<ObservedPiece, string>> = {
@@ -11,14 +12,7 @@ const PIECE_LABELS: Readonly<Record<ObservedPiece, string>> = {
   UNKNOWN: 'desconhecida',
 };
 
-const FILES = 'abcdefgh';
-
-/** Square name in algebraic style: files a–h left→right, ranks 1–8 from White's side (row 7). */
-export function squareName(index: number): string {
-  const row = Math.floor(index / BOARD_SIZE);
-  const column = index % BOARD_SIZE;
-  return `${FILES[column]}${BOARD_SIZE - row}`;
-}
+export { squareName };
 
 interface SquareView {
   readonly index: number;
@@ -124,7 +118,7 @@ export class BoardViewComponent {
   readonly squareSelect = output<number>();
 
   protected readonly ranks = Array.from({ length: BOARD_SIZE }, (_, i) => BOARD_SIZE - i);
-  protected readonly files = FILES.split('');
+  protected readonly files = FILE_LETTERS;
 
   protected readonly squares = computed<SquareView[]>(() => {
     const cells = this.cells();

@@ -206,3 +206,57 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
 ## ADR-029 — Playwright worker cap
 
 - **Decision:** `workers: 4` locally and 2 in CI. With 8 parallel browsers each compiling OpenCV.js (17 MB), page navigation timed out under load; with 3–4 workers every run passed (52/52 over two repetitions).
+
+## ADR-030 — Staged recognition pipeline with per-square traces (G3)
+
+- **Context:** the G3 audit found the E3 classifier hard to diagnose: one function mixed occupancy, color and king evidence, and the diagnostics carried only a reason and two numbers. The user's real-world test called for a visual, explainable diagnosis.
+- **Decision:** `recognizeBoard` runs explicit stages: A frame assessment, B occupancy, C color (plus a board-level check), D piece type and E consolidation (`vision/recognition/stages/`). Occupancy is decided first, so color or king evidence can never spoil an "empty". Each square produces a serializable `SquareTrace`: regions, corner matches, every stage outcome, the key features, the limiting stage and a pt-BR explanation built from the same numbers and thresholds the stages used. `RECOGNITION_RESULT` carries `traces` and `frame` (the `FrameAssessment`) instead of E3's `diagnostics`. `square-classifier.ts` is removed; `square-regions.ts` is the single definition of the regions, used by the classifier and drawn by the UI.
+- **Consequence:** every reading can be explained and inspected. The protocol change is internal: the client and the labeled-sample export were updated together, and older samples remain readable (`diagnostics` is `unknown[]`).
+
+## ADR-031 — Background model and shadow-tolerant foreground (G3)
+
+- **Context:** in real sample A, a neighbour's tall piece covered part of h8's corners, corrupting its median background, so h8 was `UNKNOWN`. Shadows on empty squares could read as foreground.
+- **Decision:** each corner quadrant is a background candidate only if it matches the board's typical dark square (chromaticity ≤ 0.06, luminance/light ratio ±25 %). The background is the median of the matching corners; no match gives `ROI_OBSTRUCTED`. A disk pixel that keeps the background's chromaticity, with a luminance between 0.45× and 1.35× the background's, is the board in shadow or under glare, not foreground. The grid-alignment quality (Stage A) raises `CALIBRATION_MISALIGNED` below 0.5.
+- **Consequence:** sample A reads 32/32, and sample D's shifted calibration is reported instead of silently degrading. A very dark shadow (×0.4) still gives `UNKNOWN`, which is safe.
+
+## ADR-032 — Color consistency and piece-shaped occupancy (G3)
+
+- **Context:** with the background model, a hand over the board could read as white pieces. Synthetic G3 scenarios showed a glare spot or a fingertip on an empty square reading as a white piece: an invented piece.
+- **Decision:**
+  - with ≥ 3 white pieces, a "white" whose body chromaticity departs by more than 0.05 from the median of the others is undetermined (`INCONSISTENT_PIECE_COLOR`, `UNEXPECTED_OBJECTS`);
+  - an occupied disk must also cover its outer ring (0.7–1 × radius) at ≥ 50 %; otherwise it is `NOT_PIECE_SHAPED` → `UNKNOWN`.
+  - The ring threshold comes from data: real pieces cover ≥ 58 % (minimum over the 5 real samples, 120 pieces), a centered glare spot of radius 0.26 s covers 49 % and a fingertip 38 %. The first value tried (80 %) was rejected because it turned real pieces into `UNKNOWN`.
+- **Consequence:** no scenario in the EMPTY suite invents a piece, except a dark object of exactly piece size (documented limitation). The margin against a piece-sized glare spot is narrow, and it is documented.
+
+## ADR-033 — King mark searched on the displaced top face (G3)
+
+- **Context:** a G3 synthetic scenario with tall pieces (the model of the user's real set) showed **every king read as a man, confidently**. An oblique camera projects a tall piece's top face, where the mark is, away from the camera, by up to 0.6 square; E3 looked for the mark at the square center only. Dim light hid marks too (absolute luminance threshold).
+- **Decision:** `top-face.ts`.
+  - `awayFromCamera` derives the direction from the calibration: the far edge of the board is the shortest in the camera image. The worker computes it at `CALIBRATE`; it is null for a board seen from above.
+  - `searchKingMark` searches along that line (0.7 s long, ± 0.22 s). A mark pixel must be bright relative to the local light, differ from the body's chromaticity, and not be explainable as a mix of two of {body, background, light square, neutral gray}. Coverage is the best compact concentration (a disk of 1.5 mark radii slid along the line), relative to the expected mark area.
+  - **Validated on real data before adoption:** the first version (no blend rejection, no compactness) turned 40–70 % of the real men into kings, because of white/blue edge blends and bluish reflections on black pieces. It was rejected. The adopted version finds at most 0.04 of mark coverage on any of the 120 real men (threshold 0.4) and detects every synthetic king, tall or flat, in dim light and with noise.
+- **Consequence:** kings are read on tall pieces seen obliquely. King accuracy on _real_ kings is not measured yet (no real sample has kings).
+
+## ADR-034 — Diagnostic mode (G3)
+
+- **Decision:** `PROCESS_FRAME { debug: true }` makes the worker return the rectified image as a transferred `ImageBitmap` next to the traces. The client closes late images, and the store closes the previous image when it is replaced, when diagnostics are turned off and when the page is destroyed. **Modo diagnóstico** on `/recognition` (`RecognitionDebugComponent`, presentational) draws the regions, corner matches and mark-search line of every square from the traces, colored by state. It shows the frame assessment and an inspector with stage outcomes, temporal votes and features next to their thresholds, and compares two squares with Shift + click. The calibration preview draws the classifier's piece disk and background radius instead of the E2 inset rectangle on dark squares.
+- **Consequence:** the ROI shown is the ROI used. Without the debug flag nothing extra is computed or transferred.
+
+## ADR-035 — Per-square temporal stabilization in G3; E5 untouched
+
+- **Context:** spec §14 defines `stabilityWindowSize` and `stableObservationCount`, and the backlog places "stabilization / inference" in E5. ADR-025 said E3 classifies each frame independently. The G3 directive asked for temporal stabilization, and the user approved it in the G3 proposal: a per-square vote buffer in G3, with the stable-board detector and move inference left in E5.
+- **Decision:** `vision/recognition/temporal/observation-stabilizer.ts`, used by `RecognitionStore`, keeps the last 5 usable frames per square.
+  - A piece is accepted when ≥ 3 frames agree and it has twice the votes of every other known reading. Its confidence is the median (no boosting). `UNKNOWN` frames do not vote. A full window without consensus is `MANUAL`.
+  - Blurry and badly exposed frames are skipped, and stale frames expire. The window resets on start, resume and corner adjustment.
+  - It changes what the recognition page shows, not the per-frame contract.
+- **Consequence:** this supersedes the "each frame independently" part of ADR-025. E5 (stable-board detection between moves, move inference, reconciliation) is not started.
+
+## ADR-036 — Recognition metrics, EMPTY suite and dataset metadata (G3)
+
+- **Decision:**
+  - `vision/evaluation/recognition-metrics.ts` (pure) computes the confusion matrix, per-class precision/recall, UNKNOWN rate, occupancy false positives/negatives, color and type errors, per image and per condition. It formats a Markdown report.
+  - `tests/integration/recognition-metrics.spec.ts` asserts the G3 targets on the real samples, as saved and after adjustment: zero confident errors, EMPTY precision ≥ 98 %, WHITE/BLACK recall ≥ 95 %. `npm run eval:recognition` (`scripts/eval-recognition.mjs`) regenerates `docs/vision/recognition-metrics.md`.
+  - The report is written through `tests/fixtures/node-io.ts`, which types the two Node calls it needs instead of adding `@types/node` to the spec build.
+  - `recognition-empty.spec.ts` asserts that no empty square is read as a piece across lighting, cast shadows, glare, fingertip, hand and phone scenarios.
+  - The sample export takes optional condition tags (`SAMPLE_CONDITIONS`) and a description.
+- **Consequence:** synthetic data are reported as regression only; the real samples are the evidence. No dependency was added and no version changed.

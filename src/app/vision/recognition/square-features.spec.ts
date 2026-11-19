@@ -1,37 +1,47 @@
 import { renderNormalizedBoard } from '../../../../tests/fixtures/synthetic-board';
 import { createBoardGrid, SquareGeometry } from '../../domain/board/board-grid';
 import { Piece } from '../../domain/board/piece';
-import { DEFAULT_SHAPE_THRESHOLDS } from './classifier.config';
-import { chromaDistance, extractSquareFeatures, medianColor } from './square-features';
+import { DEFAULT_COLOR_THRESHOLDS, DEFAULT_SHAPE_THRESHOLDS } from './classifier.config';
+import {
+  chromaDistance,
+  extractSquareFeatures,
+  measureCorners,
+  medianColor,
+  Rgb,
+} from './square-features';
+import { squareRegions } from './square-regions';
+
+const BROWN: Rgb = [112, 72, 42];
+const TEST = { distance: 0.12 * 0.84, color: DEFAULT_COLOR_THRESHOLDS };
 
 /** Board with a white man on 1, a black king on 3, square 5 empty. */
-function render(): ReturnType<typeof renderNormalizedBoard> {
+function render(options = {}): ReturnType<typeof renderNormalizedBoard> {
   const cells: Piece[] = Array.from({ length: 64 }, () => 'EMPTY');
   cells[1] = 'WHITE';
   cells[3] = 'BLACK_KING';
-  return renderNormalizedBoard(cells);
+  return renderNormalizedBoard(cells, options);
 }
 
-describe('square features (E3-T02/T03)', () => {
+describe('square features (G3)', () => {
   const image = render();
   const grid = createBoardGrid(image);
   const square = (index: number): SquareGeometry => grid[index] as SquareGeometry;
-  const extract = (index: number) =>
-    extractSquareFeatures(image, square(index), DEFAULT_SHAPE_THRESHOLDS, 0.12);
+  const regions = (index: number) => squareRegions(square(index), DEFAULT_SHAPE_THRESHOLDS);
+  const extract = (index: number, img = image, background: Rgb = BROWN) =>
+    extractSquareFeatures(img, index, regions(index), background, TEST);
 
-  it('sees the board through the corners of an empty square', () => {
+  it('EMPTY: no foreground on a bare square', () => {
     const empty = extract(5);
 
     expect(empty.foregroundRatio).toBe(0);
-    expect(empty.backgroundColor).toEqual([112, 72, 42]);
+    expect(empty.shadowRatio).toBe(0);
     expect(empty.colorDistance).toBeCloseTo(0, 5);
   });
 
-  it('measures a piece: full foreground, brighter body than background', () => {
+  it('WHITE: full foreground, body brighter than the background', () => {
     const white = extract(1);
 
     expect(white.foregroundRatio).toBe(1);
-    expect(white.backgroundColor).toEqual([112, 72, 42]);
     expect(white.bodyLuminance).toBeGreaterThan(white.backgroundLuminance * 2);
   });
 
@@ -39,7 +49,30 @@ describe('square features (E3-T02/T03)', () => {
     const king = extract(3);
 
     expect(king.bodyLuminance).toBeLessThan(0.15);
-    expect(king.markLuminance - king.bodyLuminance).toBeGreaterThan(0.4);
+    expect(chromaDistance(king.markColor, king.bodyColor)).toBeGreaterThan(0.1);
+  });
+
+  it('a piece covers the outer ring of the disk', () => {
+    expect(extract(1).ringForegroundRatio).toBe(1);
+    expect(extract(5).ringForegroundRatio).toBe(0);
+  });
+
+  it('EMPTY: a shadow on the board is discarded as shadow, not counted as an object', () => {
+    // Darken the whole square 5 to 60 %: same chromaticity, lower luminance.
+    const shaded = render({ shadow: { x: 550, y: 50, radius: 80, factor: 0.6 } });
+
+    const features = extract(5, shaded);
+
+    expect(features.foregroundRatio).toBeLessThan(DEFAULT_SHAPE_THRESHOLDS.emptyMaxRatio);
+    expect(features.shadowRatio).toBeGreaterThan(0.5);
+  });
+
+  it('measures each corner quadrant separately', () => {
+    const corners = measureCorners(image, regions(5));
+
+    expect(corners).toHaveLength(4);
+    expect(corners.every((c) => c.pixels > 0)).toBe(true);
+    expect(corners.map((c) => c.color)).toEqual([BROWN, BROWN, BROWN, BROWN]);
   });
 
   it('computes median colors and brightness-independent chroma distances', () => {

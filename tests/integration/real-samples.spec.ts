@@ -1,4 +1,3 @@
-import { SquareDiagnostic } from '../../src/app/core/workers/vision-worker.protocol';
 import { CalibrationCorners } from '../../src/app/domain/board/calibration';
 import {
   isLabeledSample,
@@ -43,7 +42,7 @@ async function syntheticSample(corners: CalibrationCorners): Promise<LabeledSamp
     TRUE,
     SOURCE,
   );
-  const diagnostics: SquareDiagnostic[] = [];
+  const diagnostics: unknown[] = [];
   return {
     format: LABELED_SAMPLE_FORMAT,
     version: 1,

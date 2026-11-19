@@ -1,121 +1,152 @@
 # Recognition
 
-Implements `docs/execution-specification.md` §5 (Recognition), §7 (MVP recognition, Frame quality), §9 (`PROCESS_FRAME`), §10 (manual correction) and §14. Epic E3.
+Implements `docs/execution-specification.md` §5 (Recognition), §7 (MVP recognition, Frame quality), §9 (`PROCESS_FRAME`), §10 (manual correction) and §14. Epic E3, refactored in Gate G3 (ADR-030 to ADR-036).
+
+Recognition observes; it never changes game state (ADR-025). A square it cannot decide safely is `UNKNOWN`, never a guess.
 
 ## Pipeline (vision worker)
 
 ```mermaid
 flowchart LR
     Frame[Camera frame] --> Warp[OpenCV warp 800×800]
-    Warp --> Quality[OpenCV quality: Laplacian variance, mean luminance]
+    Warp --> Quality[OpenCV: sharpness, mean luminance]
     Warp --> Denoise[OpenCV Gaussian blur 5×5]
-    Denoise --> Light[Light squares: illumination reference + suspicious squares]
-    Light --> Features[Per playable square: background, disk, mark]
-    Features --> Occlusion[Occlusion check]
-    Occlusion --> Classify[Classify + confidence]
-    Classify --> Result[BoardRecognitionResult]
+    Denoise --> A[A · frame assessment: grid alignment]
+    Denoise --> Light[Light squares: illumination reference]
+    Light --> BG[Background model: corners that look like the board]
+    BG --> B[B · occupancy]
+    B --> C[C · color + board-level consistency]
+    C --> D[D · piece type: king mark on the top face]
+    D --> E[E · consolidation: confidence, decision, trace]
+    E --> Result[BoardRecognitionResult + SquareTrace × 32]
+    Result --> T[Temporal stabilizer, page side]
 ```
 
-The `FrameScheduler` from E1 drives recognition: one frame in flight, a 200 ms interval, and stale frames dropped. The vision worker acts as the processor. The page sends the saved calibration again whenever the frame size changes.
+The `FrameScheduler` from E1 drives recognition: one frame in flight, a 200 ms interval, stale frames dropped. The page sends the saved calibration again whenever the frame size changes. When it calibrates, the worker also derives the direction in which tall pieces appear displaced (see Stage D).
 
-## Features (per playable square, normalized image)
+## Regions (per playable square, normalized image)
 
-| Region               | Definition (relative to square size `s`) | Used for                                           |
-| -------------------- | ---------------------------------------- | -------------------------------------------------- |
-| Background (corners) | distance from center ≥ 0.47 s            | the board itself, with the piece's own lighting    |
-| Piece disk           | distance ≤ 0.30 s                        | foreground fraction                                |
-| King mark            | distance ≤ 0.10 s                        | mark luminance                                     |
-| Body                 | 0.16 s – 0.30 s                          | piece luminance without the mark                   |
-| Light-square ROI     | square inset by 15 % per edge            | illumination reference, occlusion of light squares |
+All regions derive from the calibrated square size `s` (`vision/recognition/square-regions.ts`). The diagnostic view draws these same regions from the worker's traces, so the ROI shown is the ROI used.
 
-- **Foreground fraction:** the share of disk pixels whose RGB distance from the median background color exceeds `pixelForegroundDistance × local light reference`. Scaling by the light reference keeps the test meaningful in dim light.
-- **Local light reference:** the median luminance of the 2–4 orthogonally adjacent light squares, excluding suspicious ones. Light squares never hold pieces.
+| Region           | Definition                                                 | Used for                                         |
+| ---------------- | ---------------------------------------------------------- | ------------------------------------------------ |
+| Area             | square minus a 3 % margin per edge                         | everything below (grid lines excluded)           |
+| Corners          | distance from center ≥ 0.47 s, split into four quadrants   | background model                                 |
+| Piece disk       | distance ≤ 0.30 s                                          | foreground fraction (occupancy)                  |
+| Occupancy ring   | 0.21 s – 0.30 s (outer 30 % of the disk radius)            | piece-shaped test                                |
+| Body ring        | 0.16 s – 0.30 s, foreground pixels only                    | piece color                                      |
+| King-mark search | line from the center, 0.7 s away from the camera, ± 0.22 s | king mark (Stage D)                              |
+| Light-square ROI | light square inset by 15 % per edge                        | local illumination reference, suspicious squares |
 
-## Classification
+## Stages
 
-1. **Occlusion:** a square is `UNKNOWN` when its background's chromaticity or its background/light ratio departs from the board's typical dark square (hand, object, misalignment). A covered square must never read as "empty", because that would be false move evidence.
-2. **Presence:** the square is empty when the foreground is ≤ 15 %, occupied when it is ≥ 45 %, and `UNKNOWN` in between (off-square piece, finger).
-   - If the square's background is darker than 22 % of the light reference, a black piece could be invisible, so "empty" becomes `UNKNOWN` and a `LOW_BOARD_CONTRAST` warning is raised.
-3. **Color:** piece body vs square background luminance ratio. The piece is white at ≥ 1.5, black at ≤ 0.65, and `UNKNOWN` in between. Both regions share the same lighting, which makes this robust to gradients and shadows.
-4. **King:** the contrast between the king mark and the body, relative to the light reference, must be ≥ 0.25.
-   - **Assumption (spec §7):** kings are standardized pieces with a distinct central mark (sticker, crown, contrasting cap). Unmarked or stacked kings are not detected, so the user corrects them manually.
-5. **Confidence:** each decision gives 0.5 at its threshold, rising linearly to 1 at its soft margin. The square's confidence is the weakest of its decisions, and below 0.60 the square becomes `UNKNOWN`. These are heuristic values, not probabilities. The bands are high ≥ 0.95, acceptable ≥ 0.80, uncertain ≥ 0.60 (spec §7).
+**Light reference.** Light squares never hold pieces. The median luminance of the 2–4 orthogonally adjacent light squares (suspicious ones excluded) is the local illumination reference; every luminance threshold below is relative to it.
 
-**Board result:**
+**Background model.** Each corner quadrant is a board-background candidate when its chromaticity is within 0.06 of the board's typical dark square and its luminance/light ratio within 25 % of the typical ratio. The square's background is the median of the matching corners. A piece or object covering some corners no longer corrupts the background; when no corner matches, the square is `UNKNOWN` (`ROI_OBSTRUCTED`).
 
-- 64 cells: non-playable cells are always `EMPTY` with confidence 1.
-- 32 `SquareRecognition`s.
-- `overallConfidence` is the mean over the playable squares.
-- `status` is `UNCERTAIN` if any square is `UNKNOWN` or below 0.80, `SUCCESS` otherwise. (`ERROR` is reserved; worker failures arrive as protocol `ERROR`s.)
+**Foreground test.** A disk pixel is foreground when its RGB distance from the background exceeds `0.12 × light reference`, unless it keeps the background's chromaticity (≤ 0.04) with a luminance between 0.45× and 1.35× the background's: that is the board in shadow or under glare, not an object.
 
-**Warnings:**
+**A · Frame assessment** (advisory, spec §7). Sharpness (Laplacian variance < 15), exposure (mean luminance < 0.12 or > 0.92) and grid alignment: for each internal grid line, the luminance contrast on the line relative to the best contrast within ±0.4 square. Below 0.5 the frame raises `CALIBRATION_MISALIGNED` ("Reajustar cantos").
 
-- `UNKNOWN_SQUARES`, `LOW_CONFIDENCE`, `UNEXPECTED_OBJECTS`, `LOW_BOARD_CONTRAST`, `TOO_MANY_PIECES` (more than 12 of a color);
-- advisory frame quality: `LOW_SHARPNESS`, `UNDEREXPOSED`, `OVEREXPOSED`. These never reject a frame.
+**B · Occupancy.** Decided before, and independently of, color and type.
 
-All thresholds live in `vision/recognition/classifier.config.ts`. They travel in `VisionConfig.classifier`, keep the spec's `Record<string, number>` shape, are typed, and are validated at `INIT`.
+- `EMPTY` when the foreground is ≤ 15 % of the disk. If the background is darker than 22 % of the light reference, a black piece could be invisible, so it becomes `UNKNOWN` (`LOW_BOARD_CONTRAST`).
+- `OCCUPIED` when the foreground is ≥ 45 % **and** reaches the disk edge all around: occupancy ring ≥ 50 %. A piece covers its disk to the edge; a glare spot or a fingertip covers the center only (`NOT_PIECE_SHAPED` → `UNKNOWN`).
+- `UNKNOWN` in between (`PARTIAL_OCCUPANCY`: off-center piece, finger, misalignment).
+
+**C · Color.** The body/background luminance ratio: white at ≥ 1.5, black at ≤ 0.65, `UNKNOWN` in between. Both regions share the same lighting. Board level: with ≥ 3 white pieces, a "white" whose body chromaticity departs by more than 0.05 from the median of the others is not a piece (hand, object): `INCONSISTENT_PIECE_COLOR` → `UNKNOWN`, plus an `UNEXPECTED_OBJECTS` warning.
+
+**D · Piece type.** Kings carry a colored mark (spec §7). An oblique camera sees a tall piece's top face, where the mark is, projected **away from the camera**, by up to 0.6 square in the far rows. The direction comes from the calibration: the far edge of the board is the shortest in the camera image (`top-face.ts`, `awayFromCamera`; boards seen from above search only the center). The mark is searched along that line. A mark pixel:
+
+- is bright enough (≥ 0.22 × light reference) to have a reliable color;
+- differs in chromaticity from the body (≥ 0.08);
+- cannot be explained as a mix of two of {body, square background, light square, neutral gray}, within 0.04. Blurred edges against the board and board reflections on glossy pieces are such mixes.
+
+Coverage is the largest number of mark pixels in one disk of 1.5 mark radii slid along the line, relative to the expected mark area (π × (0.1 s)²). `KING` at ≥ 0.4, with a soft margin of 0.25.
+
+**E · Consolidation.** Each stage gives a confidence: 0.5 at its threshold, rising linearly to 1 at its soft margin. These are heuristic values, not probabilities. The square's confidence is the weakest stage, and that stage is recorded as `limitingStage`. Below 0.60 (or undetermined) the square is `UNKNOWN` (`RETRY`); below 0.80 it is accepted with a warning (`WARN`). The bands are spec §7's: high ≥ 0.95, acceptable ≥ 0.80, uncertain ≥ 0.60.
+
+**Board result.** 64 cells (non-playable cells always `EMPTY`, confidence 1), 32 `SquareRecognition`s and `overallConfidence` (the mean). `status` is `UNCERTAIN` if any square is not `ACCEPT`, `SUCCESS` otherwise.
+
+**Warnings:** `UNKNOWN_SQUARES`, `LOW_CONFIDENCE`, `UNEXPECTED_OBJECTS`, `LOW_BOARD_CONTRAST`, `TOO_MANY_PIECES` (more than 12 of a color), and the frame issues `LOW_SHARPNESS`, `UNDEREXPOSED`, `OVEREXPOSED`, `CALIBRATION_MISALIGNED`. None rejects a frame.
+
+All thresholds live in `vision/recognition/classifier.config.ts`. They are typed, documented and validated at `INIT`, and travel in `VisionConfig.classifier` in the spec's `Record<string, number>` shape.
+
+## Traces and diagnostic mode
+
+Every square has a `SquareTrace` (`square-trace.ts`): its regions (including the mark-search line), its corner matches, the outcome of every stage, the key feature values, and a pt-BR explanation built from the same numbers and thresholds the stages used. The board shows that explanation as each square's tooltip.
+
+**Modo diagnóstico** on `/recognition` asks the worker for the rectified image (`PROCESS_FRAME { debug: true }`, transferred bitmap, closed when replaced or when the page leaves). The panel draws:
+
+- every square's region, piece disk, background radius, corner matches and mark-search line, colored by state (empty, piece, low confidence, unknown, obstructed);
+- the frame assessment (alignment, sharpness, brightness, issues);
+- an inspector for a clicked square (Shift + click compares two): a crop with the regions, every stage outcome, the temporal votes and the features next to their thresholds.
+
+The calibration preview draws the same piece disk and background radius.
+
+## Temporal stabilization (page side)
+
+`ObservationStabilizer` (`vision/recognition/temporal/`) consolidates readings per square over the last 5 usable frames (spec §14 `stabilityWindowSize`, `stableObservationCount`):
+
+- a piece is accepted when ≥ 3 frames agree and it has at least twice the votes of every other known reading, so a single noisy frame cannot flip a stable square;
+- its confidence is the median of the agreeing frames (no boosting);
+- `UNKNOWN` frames do not vote, so occasional uncertainty does not keep a square unknown; a full window without consensus becomes `MANUAL` ("corrija manualmente");
+- blurry or badly exposed frames are not added (a misaligned frame still votes, and its warning is shown); stale frames expire.
+
+The board shows the stable reading. This is not E5's stable-board detector or move inference (ADR-035).
 
 ## Correction workflow (`/recognition`)
 
-**Pause and correct** freezes the current reading. The user then:
+**Pausar e corrigir** freezes the current reading. The user selects a square and picks _Vazia / Branca / Preta / Dama branca / Dama preta_; corrected squares are marked, and **Desfazer correções** reverts them. **Confirmar posição** requires every square to be known; corrected squares get confidence 1. The confirmed observation stays in the page store (ADR-025).
 
-1. selects a square on the digital board and picks _Empty / White / Black / White king / Black king_;
-2. sees corrected squares marked on the board;
-3. can **undo corrections** to revert them.
+While correcting, the page shows _Leitura automática: N de 32 casas corretas_, a per-session accuracy figure on real boards.
 
-**Confirm position** requires every square to be known. Corrected squares get confidence 1.
+## Evaluation (G3)
 
-The confirmed observation stays in the page store; it is not game state. E6 will use it as the initial position, after engine validation.
+- **Labeled real samples** (ADR-028): after confirming, **Baixar amostra rotulada** exports the frame, the calibration, the confirmed position, the reading and the traces, with optional condition tags and a description. Samples registered in `tests/fixtures/real-samples/` are replayed through the real worker pipeline by `npm test`.
+- **Metrics** (`vision/evaluation/recognition-metrics.ts`): confusion matrix, per-class precision and recall, UNKNOWN rate, occupancy false positives/negatives, color and type errors, per image and per condition. `tests/integration/recognition-metrics.spec.ts` asserts the G3 targets on the real samples. `npm run eval:recognition` regenerates [recognition-metrics.md](recognition-metrics.md).
+- **Regression suites:** `recognition-accuracy.spec.ts` (lighting, noise, off-center, shadows, tall pieces and kings), `recognition-empty.spec.ts` (an empty square is never read as a piece: shadows, cast shadows, glare, fingertip, hand, phone) and `recognition-pipeline.spec.ts` (through the worker, under perspective).
 
-**Measurable (Gate G3):** while correcting, the page shows _Automatic reading: N of 32 squares correct (X %) · K corrected_. That gives a per-session accuracy figure on real boards, to feed the physical test matrix (E8-T02).
+Synthetic scenarios guard known failure modes; only real samples count as evidence of accuracy.
 
-## Measured results (synthetic, 2026-11-19)
+## Measured results (G3, 2026-11-19)
 
-These were measured with `tests/fixtures/synthetic-board.ts`, top-down 800 × 800, with default thresholds. Synthetic data validate the logic, not real-world accuracy.
+**Real samples:** 5 frames, 160 playable squares (blue/cream board, tall grooved pieces, oblique camera, daylight, starting position).
 
-| Scenario                                             |           Correct | UNKNOWN | Wrong |
-| ---------------------------------------------------- | ----------------: | ------: | ----: |
-| Ideal, starting position / mid-game with kings       |             32/32 |       0 |     0 |
-| Dim ×0.55 / ×0.35 / ×0.25                            |             32/32 |       0 |     0 |
-| Bright ×1.2 / ×1.5 (clipping)                        |             32/32 |       0 |     0 |
-| Lighting gradient 0.6→1.15 / 0.4→1.2                 |             32/32 |       0 |     0 |
-| Noise σ 10                                           |             32/32 |       0 |     0 |
-| Pieces off-center ±8 % / ±15 %                       |             32/32 |       0 |     0 |
-| Shadow ×0.6                                          |             32/32 |       0 |     0 |
-| Shadow ×0.4                                          |             28/32 |       4 |     0 |
-| Gradient + noise + jitter                            |             32/32 |       0 |     0 |
-| Green/cream board                                    |             32/32 |       0 |     0 |
-| Near-black dark squares (unsupported board)          |              8/32 |      24 |     0 |
-| Red/white pieces on brown (default thresholds)       |             24/32 |       8 |     0 |
-| Through the worker (perspective, OpenCV): noise σ 20 | ≥ 95 % (asserted) |       — |     0 |
+| Pipeline                     | Correct | UNKNOWN | Confident errors | EMPTY P / R   | WHITE R | BLACK R |
+| ---------------------------- | ------: | ------: | ---------------: | ------------- | ------: | ------: |
+| In-app reading at export ¹   |     148 |       8 |                4 | 100 % / 100 % |  83.3 % |  96.7 % |
+| Baseline `d8cc640`, as saved |     159 |       1 |                0 | 100 % / 100 % |   100 % |  98.3 % |
+| G3, as saved                 |     160 |       0 |                0 | 100 % / 100 % |   100 % |   100 % |
+| G3, after automatic adjust   |     160 |       0 |                0 | 100 % / 100 % |   100 % |   100 % |
 
-**No scenario produced a confident wrong answer.** The worker pipeline tests (`tests/integration/recognition-pipeline.spec.ts`) read 32/32 under perspective in three orientations. In Chromium, the E2E fake camera plays a generated board video and the page reads 32/32, kings included (`tests/e2e/recognition.spec.ts`). `recognizeBoard` takes about 3 ms per frame in Node.
+¹ What the app showed when each sample was exported: the build before the baseline commit, with 4 white men read as kings (the false kings fixed before `d8cc640`). It was a single frame, as saved.
 
-Before reaching that point, the measurements uncovered three bugs, which were fixed: confident "empty" under a hand, confident "empty" for black pieces on near-black squares, and confident errors in very dim light (absolute foreground threshold).
+The real samples contain no kings, so king accuracy on real pieces is **not measured**.
 
-## First real-world test (2026-11-19) and validation with real samples
+**Synthetic failure modes found and fixed during G3** (each now has a regression scenario):
 
-The first test was a blue/cream board with tall grooved pieces and an oblique camera in daylight. It showed 11 `?` and 3 low-confidence squares, with **no confident wrong answer**. I first read the dashed amber rings on d2, h2 and g3 as false kings; they were low-confidence white men.
+| Failure mode                                     | Before G3                     | G3                  |
+| ------------------------------------------------ | ----------------------------- | ------------------- |
+| Tall kings seen obliquely (mark off-center)      | every king read as a man      | read correctly      |
+| Kings in dim light (×0.6)                        | read as men                   | read correctly      |
+| Glare spot / fingertip on an empty square        | read as a white piece         | `UNKNOWN`           |
+| Hand over empty rows                             | could invent pieces (allowed) | `UNKNOWN`, asserted |
+| Background corrupted by a neighbour's piece (h8) | `UNKNOWN`                     | read correctly      |
 
-**Analysis:**
+**Performance** (Node, real samples): `PROCESS_FRAME` median 46 ms (p90 50 ms), including warp, quality, denoise and recognition. `recognizeBoard` takes 17 ms on real frames (12 ms on synthetic, of which about 4 ms is the king-mark search). Before G3, the stages added up to about 31 ms (warp 16, quality 3, denoise 8, recognition 4). At one frame per 200 ms this uses under a quarter of the interval. The automatic corner adjustment takes about 1.2 s, on demand.
 
-- **Main cause: imprecise corners on the far edge.** Synthetic reproduction shows that a 10 px inset of the far corners alone produces 11 `?`.
-- **Fix:** automatic corner adjustment (ADR-027), plus a "Reajustar cantos" button on the recognition screen.
-- **Diagnostics:** the board now shows the reason for every `?`.
+## Known limitations
 
-**Validation workflow with real boards (ADR-028):**
+- **A dark object the size of a piece**, lying on an empty square, reads as a black piece: no single-frame feature tells them apart. Larger objects (a phone) obstruct the corners and read `UNKNOWN`.
+- **A glare spot the size of a piece** (≥ 0.26 s radius) on an empty square is close to the piece-shaped threshold (ring 0.49 vs 0.50). Smaller spots are safe.
+- **Kings must carry a colored mark** (spec §7). Stacked or achromatic kings read as men; the user corrects them, and the engine tracks promotions (E4/E6).
+- **The mark direction assumes the camera faces the board** across one side or a corner; the calibration provides it. Top-down boards search the center only.
+- **Pieces whose luminance is close to the dark squares** (for example red on brown) come out `UNKNOWN`; tune `blackMaxContrastRatio` for such sets.
+- **Thresholds are validated on one real set** (5 frames, one board, one lighting). Artificial light, shadows, kings, obstruction and other angles need real samples (the condition tags in the export cover these) and the physical test matrix (E8-T02).
 
-1. Confirm the position on `/recognition`.
-2. Click **Baixar amostra rotulada**.
-3. Add the JSON to `tests/fixtures/real-samples/` and register it in `index.ts`.
+## History
 
-`npm test` then replays it through the real pipeline, both as saved and after automatic adjustment, and fails on confident errors or regressions.
-
-The synthetic renderer now also models the real set: tall pieces in oblique perspective, grooves with a dark center, cast shadows, stacked kings, and the blue board (`REAL_SET_BLUE_BOARD`).
-
-## Known limitations (to address with physical data)
-
-- **Pieces whose luminance is close to the dark squares** (for example red pieces on brown squares) come out as `UNKNOWN`. Tune `blackMaxContrastRatio` (for example 0.85) for such sets.
-- **Kings must carry a central mark.** Stacked (unmarked) kings read as men; the engine will track promotions (E4/E6), so this matters mainly for the initial position, which the user corrects.
-- **There is no temporal smoothing yet** (E5: stabilizer). Each frame is classified independently.
-- **Thresholds come from synthetic boards only.** The physical test matrix (E8-T02) must validate them: lighting, angles, real pieces, occlusion.
+- **E3 (2026-11-19):** classical, self-referenced classifier (ADR-022), synthetic evaluation (ADR-026).
+- **First real-world test:** 11 `?` squares with no confident error. The main cause was imprecise far corners, fixed by the automatic corner adjustment (ADR-027). Labeled real samples followed (ADR-028).
+- **G3 refactor:** staged pipeline, background model, shadow-tolerant foreground, color consistency, grid alignment, traces and diagnostic mode, top-face king search, piece-shaped occupancy, temporal stabilization, metrics (ADR-030 to ADR-036).

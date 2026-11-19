@@ -12,44 +12,56 @@ export interface RegisteredSample {
   readonly minCorrect: number;
   /** Regression floor after the automatic corner adjustment. */
   readonly minCorrectRefined: number;
+  /** Capture conditions (labeled-sample `SAMPLE_CONDITIONS`), for the per-condition metrics. */
+  readonly conditions: readonly string[];
 }
+
+/** All five samples: starting position, daylight from a window, oblique camera. */
+const START_DAYLIGHT = ['LUZ_NATURAL', 'MUITAS_PECAS'] as const;
 
 /**
  * Real samples replayed by tests/integration/real-samples.spec.ts (see README.md).
  * Blue/cream board, tall grooved pieces, oblique camera, daylight — 2026-11-19.
  * Sample A: the exported label for h8 said WHITE; the frame shows a black man, so the
- * label was corrected to BLACK. Its h8 stays UNKNOWN (background chroma 0.073 vs the
- * 0.05 occlusion tolerance, because the far corner is blurred) — a safe answer.
+ * label was corrected to BLACK. Before G3 its h8 was UNKNOWN (blurred far corner); the G3
+ * background model reads it correctly. Sample D's saved calibration is shifted: it raises
+ * CALIBRATION_MISALIGNED as saved, and is read correctly either way.
+ * Floors are the current results (G3): every sample 32/32, no UNKNOWN.
  */
 export const REAL_SAMPLES: readonly RegisteredSample[] = [
   {
     name: 'blue-board-start-a',
     sample: a as unknown as LabeledSample,
-    minCorrect: 31,
-    minCorrectRefined: 31,
+    minCorrect: 32,
+    minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
   },
   {
     name: 'blue-board-start-b',
     sample: b as unknown as LabeledSample,
     minCorrect: 32,
     minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
   },
   {
     name: 'blue-board-start-c',
     sample: c as unknown as LabeledSample,
     minCorrect: 32,
     minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
   },
   {
     name: 'blue-board-start-d',
     sample: d as unknown as LabeledSample,
     minCorrect: 32,
     minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
   },
   {
     name: 'blue-board-start-e',
     sample: e as unknown as LabeledSample,
     minCorrect: 32,
     minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
   },
 ];

@@ -96,7 +96,10 @@ describe('RecognitionStore', () => {
   async function startRecognizing(): Promise<RecognitionStore> {
     repository.profiles.set(PROFILE.id, PROFILE);
     await store().start();
-    await vi.waitFor(() => expect(store().latest()).not.toBeNull());
+    // The board shows the temporally consolidated reading: ≥ 3 agreeing frames (200 ms apart).
+    await vi.waitFor(() => expect(store().latest()?.board.cells[1]).toBe('BLACK'), {
+      timeout: 3000,
+    });
     return store();
   }
 
@@ -267,6 +270,17 @@ describe('RecognitionStore', () => {
     expect(sample.recognized.cells[17]).toBe('UNKNOWN');
     expect(sample.frame).toMatchObject({ width: 640, height: 480 });
     expect(sample.calibration.orientation).toBe('ROTATED_180');
+    expect(sample.conditions).toBeUndefined();
+
+    const tagged = await recognition.buildLabeledSample({
+      description: '  luz de janela  ',
+      conditions: ['LUZ_NATURAL', 'SOMBRAS'],
+    });
+    expect(tagged).toMatchObject({
+      description: 'luz de janela',
+      conditions: ['LUZ_NATURAL', 'SOMBRAS'],
+    });
+    expect(isLabeledSample(tagged)).toBe(true);
     vi.restoreAllMocks();
   });
 

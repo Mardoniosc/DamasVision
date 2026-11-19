@@ -76,12 +76,14 @@ flowchart LR
 - The client is provided by the calibration page, so the worker is terminated on leaving the route.
 - The live overlay uses the pure-TS homography, and pixels are warped only in the worker.
 
-## Recognition (E3)
+## Recognition (E3, refactored in G3)
 
-Details and measurements: `docs/vision/recognition.md`.
+Details, measurements and limitations: `docs/vision/recognition.md`; metrics on the real samples: `docs/vision/recognition-metrics.md`.
 
-- `RecognitionStore` (route-scoped) starts `FrameCaptureService` with a processor that sends each frame to the worker (`PROCESS_FRAME`). The worker warps the frame, measures its quality, denoises it and classifies it, then answers `RECOGNITION_RESULT`.
-- The store keeps the latest result, freezes it for correction, applies corrections (`domain/board/observation.ts`) and confirms. It never touches game state.
+- `RecognitionStore` (route-scoped) starts `FrameCaptureService` with a processor that sends each frame to the worker (`PROCESS_FRAME`). The worker warps the frame, measures its quality, denoises it and runs the staged pipeline (`vision/recognition/`: frame assessment, background model, occupancy, color, piece type, consolidation). It answers `RECOGNITION_RESULT` with the result, one `SquareTrace` per playable square and the frame assessment, plus the rectified image when diagnostics are on.
+- The store consolidates frames per square (`ObservationStabilizer`, ADR-035) and shows the stable reading. It freezes it for correction, applies corrections (`domain/board/observation.ts`) and confirms. It never touches game state.
+- `RecognitionDebugComponent` (Modo diagnóstico) draws the classifier's regions and traces over the rectified image, with a per-square inspector (ADR-034).
+- `vision/evaluation/` computes recognition metrics against labeled samples (ADR-036).
 - `shared/components/board-view` renders any observation (UNKNOWN, confidence, corrected squares) and will be reused by the live game.
 
 ## Runtime principles (from spec)

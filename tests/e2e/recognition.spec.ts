@@ -48,6 +48,38 @@ test.describe('Recognition (E3)', () => {
     await expect(page.getByTestId('recognition-overlay').locator('circle')).not.toHaveCount(0);
   });
 
+  test('diagnostic mode shows the rectified board and explains a square', async ({ page }) => {
+    await calibrateAndOpenRecognition(page);
+    await expect(page.getByTestId('recognition-status')).toHaveText('Leitura confiável', {
+      timeout: OPENCV_TIMEOUT,
+    });
+
+    await page.getByTestId('debug-toggle').check();
+
+    const panel = page.getByTestId('recognition-debug');
+    await expect(panel.locator('[data-debug-square]')).toHaveCount(32);
+    await expect(page.getByTestId('frame-assessment')).toContainText('nenhum');
+    // The rectified image arrives from the worker and is painted on the canvas.
+    await expect
+      .poll(() =>
+        panel
+          .locator('canvas')
+          .first()
+          .evaluate((canvas: HTMLCanvasElement) => {
+            const pixel = canvas.getContext('2d')?.getImageData(400, 400, 1, 1).data;
+            return pixel ? pixel[3] : 0;
+          }),
+      )
+      .toBe(255);
+
+    await panel.locator('[data-debug-square="17"]').click();
+    await expect(page.getByTestId('inspected-name')).toHaveText('Casa b6');
+    await expect(page.getByTestId('inspected-explanation')).toContainText('Preta');
+
+    await page.getByTestId('debug-toggle').uncheck();
+    await expect(panel).toHaveCount(0);
+  });
+
   test('corrects a square and confirms the position', async ({ page }) => {
     await calibrateAndOpenRecognition(page);
     await expect(page.getByTestId('recognition-status')).toHaveText('Leitura confiável', {
@@ -123,6 +155,8 @@ test.describe('Recognition (E3)', () => {
     });
     await page.getByRole('button', { name: 'Pausar e corrigir' }).click();
     await page.getByRole('button', { name: 'Confirmar posição' }).click();
+    await page.getByLabel('Luz artificial').check();
+    await page.getByTestId('sample-description').fill('tabuleiro sintético');
 
     const [download] = await Promise.all([
       page.waitForEvent('download'),
@@ -135,12 +169,16 @@ test.describe('Recognition (E3)', () => {
       labels: string[];
       frame: { width: number; height: number; png: string };
       calibration: { orientation: string };
+      conditions?: string[];
+      description?: string;
     };
     expect(sample.format).toBe('damas-vision/labeled-sample');
     expect(sample.labels).toEqual([...E2E_POSITION]);
     expect(sample.frame).toMatchObject({ width: 640, height: 480 });
     expect(sample.frame.png.startsWith('data:image/png;base64,iVBOR')).toBe(true);
     expect(sample.calibration.orientation).toBe('NORMAL');
+    expect(sample.conditions).toEqual(['LUZ_ARTIFICIAL']);
+    expect(sample.description).toBe('tabuleiro sintético');
     await expect(page.getByTestId('export-status')).toBeVisible();
   });
 });
