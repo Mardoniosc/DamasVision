@@ -1,4 +1,5 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { CameraState } from '../../core/camera/camera.models';
 import { CameraService } from '../../core/camera/camera.service';
 import {
@@ -37,7 +38,7 @@ const CAPTURE_STATE_LABELS: Readonly<Record<FrameCaptureState, string>> = {
  */
 @Component({
   selector: 'app-game-setup-page',
-  imports: [MediaStreamDirective],
+  imports: [MediaStreamDirective, RouterLink],
   templateUrl: './game-setup-page.component.html',
 })
 export class GameSetupPageComponent {

@@ -1,41 +1,11 @@
 import { expect, Page, test } from '@playwright/test';
+import { liveTrackCount, recordStreams, streamCount } from './support/media-probe';
 
 /**
  * E1 camera lifecycle in a real browser, using Chromium's synthetic camera
  * (see playwright.config.ts). Every stream the page opens is recorded so the
  * tests can prove none is left running (Gate G1: no leaked streams).
  */
-
-interface StreamProbe {
-  __dvStreams: MediaStream[];
-}
-
-async function recordStreams(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const probe = window as unknown as StreamProbe;
-    probe.__dvStreams = [];
-    const mediaDevices = navigator.mediaDevices;
-    const original = mediaDevices.getUserMedia.bind(mediaDevices);
-    mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-      probe.__dvStreams.push(stream);
-      return stream;
-    };
-  });
-}
-
-function liveTrackCount(page: Page): Promise<number> {
-  return page.evaluate(
-    () =>
-      (window as unknown as StreamProbe).__dvStreams
-        .flatMap((stream) => stream.getTracks())
-        .filter((track) => track.readyState === 'live').length,
-  );
-}
-
-function streamCount(page: Page): Promise<number> {
-  return page.evaluate(() => (window as unknown as StreamProbe).__dvStreams.length);
-}
 
 async function activateCamera(page: Page): Promise<void> {
   await page.goto('/game/new');

@@ -11,13 +11,8 @@ const layerImport = (layer) => `^(\.{1,2}/)+(.*/)?${layer}(/|$)`;
  * Architectural boundaries (docs/execution-specification.md §2 and §4).
  * Enforced by lint so violations fail `npm run lint` instead of relying on review.
  */
-const VISION_AND_STORAGE_LIBS = [
-  'dexie',
-  'dexie/*',
-  '@techstark/opencv-js',
-  'opencv*',
-  '**/opencv*',
-];
+const OPENCV_LIBS = ['@techstark/opencv-js', '@techstark/opencv-js/*'];
+const VISION_AND_STORAGE_LIBS = ['dexie', 'dexie/*', ...OPENCV_LIBS];
 
 const BROWSER_GLOBALS_FORBIDDEN_IN_DOMAIN = [
   'window',
@@ -158,7 +153,7 @@ module.exports = defineConfig([
     },
   },
   {
-    // Core must not depend on presentation features.
+    // Core must not depend on presentation features, nor load OpenCV directly.
     files: ['src/app/core/**/*.ts'],
     rules: {
       'no-restricted-imports': [
@@ -169,8 +164,40 @@ module.exports = defineConfig([
               regex: layerImport('features'),
               message: 'core/** must not import features.',
             },
+            {
+              group: OPENCV_LIBS,
+              message:
+                'OpenCV is only imported in src/app/vision/** (loaded by the vision worker).',
+            },
           ],
         },
+      ],
+    },
+  },
+  {
+    // Vision pipeline: runs inside the worker. Pure TS + OpenCV; no Angular, DOM or app layers.
+    files: ['src/app/vision/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@angular/*', 'rxjs', 'rxjs/*', 'dexie', 'dexie/*'],
+              message: 'vision/** runs in a Web Worker: no Angular, RxJS or IndexedDB.',
+            },
+            {
+              regex: `${layerImport('core')}|${layerImport('features')}|${layerImport('shared')}`,
+              message: 'vision/** may only depend on domain/**.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-globals': [
+        'error',
+        ...['window', 'document', 'localStorage', 'sessionStorage', 'indexedDB', 'navigator'].map(
+          (name) => ({ name, message: 'vision/** runs in a Web Worker without DOM access.' }),
+        ),
       ],
     },
   },

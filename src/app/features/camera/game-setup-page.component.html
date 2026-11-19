@@ -38,6 +38,14 @@
           A pré-visualização não iniciou automaticamente. Desligue e ative a câmera novamente.
         </p>
       }
+      @if (camera.isStreaming()) {
+        <a
+          routerLink="/calibration"
+          class="inline-block rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+        >
+          Continuar para a calibração
+        </a>
+      }
     </div>
 
     <div class="space-y-4">

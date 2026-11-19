@@ -4,18 +4,19 @@ Summary of `docs/execution-specification.md` §3–§4 as implemented so far. Th
 
 ## Layers
 
-| Layer         | Path                         | Responsibility                                     | Status                                    |
-| ------------- | ---------------------------- | -------------------------------------------------- | ----------------------------------------- |
-| Presentation  | `src/app/features/**`        | Routed pages, overlays, status, controls           | Setup page (E1); others placeholders      |
-| Shared UI     | `src/app/shared/**`          | Reusable presentational components                 | `PagePlaceholder`, `MediaStreamDirective` |
-| Camera        | `src/app/core/camera`        | Devices, permissions, stream lifecycle             | Done (E1)                                 |
-| Frame capture | `src/app/core/frame-capture` | Scheduling, backpressure, stale-frame dropping     | Done (E1)                                 |
-| Workers       | `src/app/core/workers`       | Vision worker protocol and client                  | Empty (E2/E3)                             |
-| Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Empty (E7)                                |
-| App state     | `src/app/core/app-state`     | Session controller / state machine                 | Empty (E6)                                |
-| Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Empty (E4/E5)                             |
+| Layer         | Path                         | Responsibility                                     | Status                                            |
+| ------------- | ---------------------------- | -------------------------------------------------- | ------------------------------------------------- |
+| Presentation  | `src/app/features/**`        | Routed pages, overlays, status, controls           | Setup (E1), calibration (E2); others placeholders |
+| Shared UI     | `src/app/shared/**`          | Reusable presentational components                 | `PagePlaceholder`, `MediaStreamDirective`         |
+| Camera        | `src/app/core/camera`        | Devices, permissions, stream lifecycle             | Done (E1)                                         |
+| Frame capture | `src/app/core/frame-capture` | Scheduling, backpressure, stale-frame dropping     | Done (E1)                                         |
+| Workers       | `src/app/core/workers`       | Vision worker protocol, entry/handler and client   | Calibration + rectification (E2)                  |
+| Vision        | `src/app/vision`             | Worker-side pipeline: OpenCV loader, perspective   | Perspective (E2); recognition in E3               |
+| Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Calibrations (E2); rest in E7                     |
+| App state     | `src/app/core/app-state`     | Session controller / state machine                 | Empty (E6)                                        |
+| Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Board geometry/calibration (E2); engine E4        |
 
-Dependency direction: `features → core → domain`, `features → shared`, `features → domain`. `domain` depends on nothing. `shared` depends on neither `features` nor `core`. These rules are enforced by ESLint (see ADR-006).
+Dependency direction: `features → core → domain`, `features → shared`, `features → domain`, `core/workers → vision → domain`. `domain` depends on nothing. `shared` depends on neither `features` nor `core`. These rules are enforced by ESLint (see ADR-006).
 
 ## Application shell
 
@@ -55,6 +56,25 @@ stateDiagram-v2
 - `VideoFrameSource`: private detached muted `<video>` on the camera stream + `createImageBitmap`; independent of the preview element.
 - `FrameCaptureService` (root): wires camera stream → source → scheduler, exposes `state`, `stats`, `lastFrame`, `error`; stops automatically when the camera stream changes or closes. In E1 the processor only measures frames; E2/E3 pass the vision-worker processor to `start()`.
 - Config tokens: `CAMERA_CONFIG` (1280×720 ideal, rear camera preferred) and `FRAME_CAPTURE_CONFIG` (200 ms, 1 in flight, 500 ms max age).
+
+## Calibration and vision worker (E2)
+
+Details: `docs/vision/calibration.md`.
+
+```mermaid
+flowchart LR
+    Page[CalibrationPage + CalibrationStore] -->|corners, validation, overlay| Domain[domain/board]
+    Page -->|captureSnapshot| Capture[FrameCaptureService]
+    Page -->|calibrate / rectify| Client[VisionWorkerClient]
+    Client -->|postMessage + transfer| Worker[vision.worker → handler]
+    Worker --> Vision[vision/perspective]
+    Vision --> CV[(OpenCV.js 5.0.0)]
+    Page -->|save / getActive| Repo[DexieCalibrationRepository]
+    Repo --> DB[(IndexedDB: calibrations)]
+```
+
+- The client is provided by the calibration page, so the worker is terminated on leaving the route.
+- The live overlay uses the pure-TS homography, and pixels are warped only in the worker.
 
 ## Runtime principles (from spec)
 

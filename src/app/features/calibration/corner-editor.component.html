@@ -1,0 +1,100 @@
+<div class="relative aspect-video overflow-hidden rounded-lg bg-stone-900 select-none">
+  @if (stream(); as mediaStream) {
+    <video
+      [appMediaStream]="mediaStream"
+      (loadedmetadata)="onVideoSize($event)"
+      (resize)="onVideoSize($event)"
+      class="absolute inset-0 h-full w-full object-contain"
+      aria-label="Imagem da câmera para calibração"
+      autoplay
+      muted
+      playsinline
+    ></video>
+  } @else {
+    <div class="flex h-full items-center justify-center p-6 text-center text-sm text-stone-300">
+      A imagem da câmera aparece aqui quando a câmera estiver ativa.
+    </div>
+  }
+
+  @if (viewBox(); as box) {
+    @if (corners()) {
+      <svg
+        #overlaySvg
+        class="absolute inset-0 h-full w-full touch-none"
+        [attr.viewBox]="box"
+        preserveAspectRatio="xMidYMid meet"
+        (pointermove)="drag($event)"
+        (pointerup)="endDrag()"
+        (pointercancel)="endDrag()"
+        data-testid="corner-overlay"
+      >
+        @if (overlay(); as board) {
+          <g class="pointer-events-none" stroke="white" stroke-opacity="0.75">
+            @for (line of board.gridLines; track $index) {
+              <line
+                [attr.x1]="line.from.x"
+                [attr.y1]="line.from.y"
+                [attr.x2]="line.to.x"
+                [attr.y2]="line.to.y"
+                stroke-width="1"
+                vector-effect="non-scaling-stroke"
+              />
+            }
+          </g>
+          <g class="pointer-events-none" fill="#22c55e" fill-opacity="0.85">
+            @for (center of board.playableCenters; track $index) {
+              <circle [attr.cx]="center.x" [attr.cy]="center.y" [attr.r]="handleRadius() * 0.35" />
+            }
+          </g>
+          <g
+            class="pointer-events-none"
+            fill="white"
+            stroke="black"
+            stroke-width="3"
+            paint-order="stroke"
+            text-anchor="middle"
+            dominant-baseline="middle"
+            [attr.font-size]="labelFontSize()"
+            font-weight="600"
+          >
+            <text [attr.x]="board.whiteLabelAnchor.x" [attr.y]="board.whiteLabelAnchor.y">
+              Brancas
+            </text>
+            <text [attr.x]="board.blackLabelAnchor.x" [attr.y]="board.blackLabelAnchor.y">
+              Pretas
+            </text>
+          </g>
+        }
+
+        <polygon
+          class="pointer-events-none"
+          [attr.points]="polygonPoints()"
+          fill="none"
+          [attr.stroke]="valid() ? '#22c55e' : '#ef4444'"
+          stroke-width="2"
+          vector-effect="non-scaling-stroke"
+        />
+
+        @for (handle of handles(); track handle.name) {
+          <circle
+            [attr.cx]="handle.point.x"
+            [attr.cy]="handle.point.y"
+            [attr.r]="handleRadius()"
+            [attr.fill]="handle.invalid ? '#ef4444' : '#f59e0b'"
+            fill-opacity="0.85"
+            stroke="white"
+            stroke-width="2"
+            vector-effect="non-scaling-stroke"
+            class="cursor-grab outline-none focus:stroke-[4px] active:cursor-grabbing"
+            role="button"
+            tabindex="0"
+            [attr.aria-label]="handle.label"
+            [attr.data-corner]="handle.name"
+            (pointerdown)="startDrag($event, handle.name)"
+            (keydown)="onKeydown($event, handle.name)"
+          />
+        }
+      </svg>
+    }
+  }
+</div>

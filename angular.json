@@ -53,7 +53,10 @@
                 "input": "public"
               }
             ],
-            "styles": ["src/styles.css"]
+            "styles": ["src/styles.css"],
+            "webWorkerTsConfig": "tsconfig.worker.json",
+            "externalDependencies": ["fs", "path", "crypto"],
+            "allowedCommonJsDependencies": ["@techstark/opencv-js"]
           },
           "configurations": {
             "production": {
@@ -90,7 +93,12 @@
               "buildTarget": "damas-vision:build:development"
             }
           },
-          "defaultConfiguration": "development"
+          "defaultConfiguration": "development",
+          "options": {
+            "prebundle": {
+              "exclude": ["@techstark/opencv-js"]
+            }
+          }
         },
         "test": {
           "builder": "@angular/build:unit-test",

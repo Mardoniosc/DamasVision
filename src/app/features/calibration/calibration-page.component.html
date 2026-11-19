@@ -1,0 +1,184 @@
+<section class="space-y-6" aria-labelledby="calibration-heading">
+  <header class="space-y-2">
+    <p class="text-sm font-medium text-brand-700">Etapa 2 · Calibração</p>
+    <h1 id="calibration-heading" class="text-2xl font-semibold tracking-tight">Calibração</h1>
+    <p class="max-w-prose text-stone-600">
+      Arraste os quatro marcadores até os cantos externos da área de jogo (8 × 8 casas). Os pontos
+      verdes devem cair sobre as casas escuras e o rótulo <strong>Brancas</strong> deve ficar do
+      lado das peças brancas; se não ficarem, use <strong>Girar 90°</strong>.
+    </p>
+  </header>
+
+  @if (cameraError(); as error) {
+    <div
+      role="alert"
+      class="flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+    >
+      <span>{{ error.message }}</span>
+      <button
+        type="button"
+        class="rounded-md border border-red-300 bg-white px-3 py-1.5 font-medium hover:bg-red-50 disabled:opacity-50"
+        [disabled]="!camera.isSupported"
+        (click)="startCamera()"
+      >
+        Tentar novamente
+      </button>
+    </div>
+  }
+
+  @if (store.loadError(); as loadError) {
+    <p role="alert" class="text-sm text-red-800">{{ loadError }}</p>
+  }
+
+  <div class="grid gap-6 lg:grid-cols-[3fr_2fr]">
+    <app-corner-editor
+      [stream]="camera.stream()"
+      [sourceSize]="store.sourceSize()"
+      [corners]="store.corners()"
+      [overlay]="store.overlay()"
+      [valid]="store.isValid()"
+      [invalidCorners]="store.invalidCorners()"
+      (sourceSizeChange)="store.setSourceSize($event)"
+      (cornerMove)="store.moveCorner($event.corner, $event.point)"
+      (cornerNudge)="store.nudgeCorner($event.corner, $event.dx, $event.dy)"
+    />
+
+    <div class="space-y-4">
+      <section
+        class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+        aria-labelledby="corners-heading"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <h2 id="corners-heading" class="font-semibold">Cantos</h2>
+          <span
+            role="status"
+            aria-live="polite"
+            class="rounded-full px-2.5 py-0.5 text-xs font-medium"
+            [class]="store.isValid() ? 'bg-brand-100 text-brand-700' : 'bg-red-100 text-red-800'"
+            data-testid="calibration-validity"
+          >
+            {{ store.isValid() ? 'Calibração válida' : 'Calibração inválida' }}
+          </span>
+        </div>
+
+        @if (store.issueMessages().length > 0) {
+          <ul
+            class="list-disc space-y-1 pl-5 text-sm text-red-800"
+            data-testid="calibration-issues"
+          >
+            @for (message of store.issueMessages(); track message) {
+              <li>{{ message }}</li>
+            }
+          </ul>
+        }
+
+        <p class="text-sm text-stone-600">
+          Orientação: <span data-testid="orientation">{{ orientationLabel() }}</span>
+        </p>
+
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+            [disabled]="!store.corners()"
+            (click)="store.rotate()"
+          >
+            Girar 90°
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+            [disabled]="!store.sourceSize()"
+            (click)="store.resetCorners()"
+          >
+            Restaurar cantos
+          </button>
+        </div>
+        <p class="text-xs text-stone-500">
+          Teclado: selecione um marcador com Tab e mova com as setas (Shift = passos maiores).
+        </p>
+      </section>
+
+      <section
+        class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+        aria-labelledby="save-heading"
+      >
+        <h2 id="save-heading" class="font-semibold">Salvar</h2>
+        @if (store.savedProfile(); as profile) {
+          <p class="text-sm text-stone-600">
+            Calibração ativa: <span class="font-medium">{{ profile.name }}</span>
+          </p>
+        } @else {
+          <p class="text-sm text-stone-600">Nenhuma calibração salva neste dispositivo.</p>
+        }
+        <button
+          type="button"
+          class="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+          [disabled]="!store.isValid() || store.save().status === 'SAVING'"
+          (click)="store.saveCalibration()"
+        >
+          Salvar calibração
+        </button>
+        @switch (store.save().status) {
+          @case ('SAVING') {
+            <p role="status" class="text-sm text-stone-600">Salvando…</p>
+          }
+          @case ('SAVED') {
+            <p role="status" class="text-sm text-brand-700" data-testid="save-status">
+              Calibração salva neste dispositivo.
+            </p>
+          }
+        }
+        @if (store.save(); as save) {
+          @if (save.status === 'ERROR') {
+            <p role="alert" class="text-sm text-red-800">{{ save.message }}</p>
+          }
+        }
+      </section>
+    </div>
+  </div>
+
+  <section class="space-y-3" aria-labelledby="preview-heading">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 id="preview-heading" class="font-semibold">Tabuleiro normalizado</h2>
+        @if (workerStatus(); as status) {
+          <p class="text-xs text-stone-500" data-testid="worker-status">{{ status }}</p>
+        }
+      </div>
+      <button
+        type="button"
+        class="rounded-md border border-stone-300 bg-white px-3 py-2 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+        [disabled]="!canGenerate()"
+        (click)="store.generatePreview()"
+      >
+        Gerar imagem normalizada
+      </button>
+    </div>
+
+    @switch (store.preview().status) {
+      @case ('WORKING') {
+        <p role="status" class="text-sm text-stone-600">Gerando imagem normalizada…</p>
+      }
+      @case ('IDLE') {
+        <p class="text-sm text-stone-500">
+          Gere a imagem para conferir se a grade 8 × 8 coincide com as casas do tabuleiro.
+        </p>
+      }
+    }
+    @if (store.preview(); as preview) {
+      @if (preview.status === 'ERROR') {
+        <p role="alert" class="text-sm text-red-800">{{ preview.message }}</p>
+      }
+      @if (preview.status === 'READY') {
+        <div class="max-w-md" data-testid="normalized-preview">
+          <app-normalized-board
+            [image]="preview.image"
+            [size]="store.normalizedSize"
+            [roiInsetRatio]="store.roiInsetRatio"
+          />
+        </div>
+      }
+    }
+  </section>
+</section>

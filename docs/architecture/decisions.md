@@ -4,26 +4,29 @@ Decisions and deviations from `docs/execution-specification.md`. Each entry stat
 
 ## Exact versions (E0, 2026-11-19)
 
-| Package                                 | Version      |
-| --------------------------------------- | ------------ |
-| Node.js (dev)                           | 26.13.1      |
-| npm                                     | 11.20.0      |
-| @angular/\* (core, router, build, cli…) | 22.3.0       |
-| @angular/service-worker                 | 22.3.0       |
-| TypeScript                              | 6.0.3        |
-| RxJS                                    | 7.8.2        |
-| tslib                                   | 2.9.1        |
-| Tailwind CSS / @tailwindcss/postcss     | 4.3.5        |
-| PostCSS                                 | 8.5.33       |
-| Vitest                                  | 5.1.1        |
-| jsdom                                   | 31.0.1       |
-| @playwright/test                        | 1.65.1       |
-| Chromium (Playwright headless shell)    | 159.0.8154.6 |
-| ESLint                                  | 10.15.0      |
-| @eslint/js                              | 10.0.1       |
-| angular-eslint                          | 22.8.0       |
-| typescript-eslint                       | 8.72.2       |
-| Prettier                                | 3.10.1       |
+| Package                                 | Version         |
+| --------------------------------------- | --------------- |
+| Node.js (dev)                           | 26.13.1         |
+| npm                                     | 11.20.0         |
+| @angular/\* (core, router, build, cli…) | 22.3.0          |
+| @angular/service-worker                 | 22.3.0          |
+| TypeScript                              | 6.0.3           |
+| RxJS                                    | 7.8.2           |
+| tslib                                   | 2.9.1           |
+| Tailwind CSS / @tailwindcss/postcss     | 4.3.5           |
+| PostCSS                                 | 8.5.33          |
+| Vitest                                  | 5.1.1           |
+| jsdom                                   | 31.0.1          |
+| @playwright/test                        | 1.65.1          |
+| Chromium (Playwright headless shell)    | 159.0.8154.6    |
+| ESLint                                  | 10.15.0         |
+| @eslint/js                              | 10.0.1          |
+| angular-eslint                          | 22.8.0          |
+| typescript-eslint                       | 8.72.2          |
+| Prettier                                | 3.10.1          |
+| @techstark/opencv-js (OpenCV.js 5.0.0)  | 5.0.0-release.1 |
+| Dexie                                   | 4.4.7           |
+| fake-indexeddb (tests)                  | 6.2.8           |
 
 All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact=true` and `engine-strict=true`.
 
@@ -112,3 +115,42 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
 
 - **Decision:** Playwright's Chromium runs with `--use-fake-device-for-media-stream=device-count=2` and `--use-fake-ui-for-media-stream` and is granted `camera` permission. E2E tests wrap `getUserMedia` with an init script to record streams and assert that no track remains live. The denied-permission case is simulated by overriding `getUserMedia` in an init script.
 - **Consequence:** E2E covers Chromium only. Firefox/Safari camera behavior is part of the physical/device test matrix (E8).
+
+## ADR-016 — OpenCV.js 5.0.0 via `@techstark/opencv-js` (E2)
+
+- **Context:** spec §2 requires OpenCV.js with a controlled build and no runtime cloud dependency.
+- **Decision:** `@techstark/opencv-js@5.0.0-release.1` (Apache-2.0), the official `docs.opencv.org/5.0.0/opencv.js` build with WASM embedded, pinned and bundled locally. Only the vision worker loads it, lazily: a 17.5 MB chunk (≈2.9 MB compressed). The initial bundle is unchanged.
+- **Integration details:**
+  - The package's CommonJS export is a real Promise of the runtime. esbuild's ESM interop (`__toESM`) copies it into an object that inherits `Promise.prototype` without being a Promise, and any `await` of that object throws. `vision/opencv-runtime.ts` therefore uses `import x = require(...)` (justified lint disable) and carries the module inside a plain wrapper object.
+  - The file references `fs`/`path`/`crypto` only under `ENVIRONMENT_IS_NODE`. The build marks them as `externalDependencies`, and `allowedCommonJsDependencies` silences the CommonJS warning.
+  - The dev server's Vite pre-bundling breaks the `require` inside the worker, so `serve.options.prebundle.exclude` lists the package.
+- **Consequence:** the PWA `app` asset group currently prefetches the OpenCV chunk on install. That is needed for offline use but heavy, so it is to be revisited in E8-T05.
+
+## ADR-017 — `src/app/vision/` layer (E2)
+
+- **Context:** spec §4 has no folder for the worker-side pipeline. `core/workers` owns the protocol and client.
+- **Decision:** new layer `src/app/vision/` holds pure TypeScript and OpenCV code that runs inside the worker: loader, `ResourceScope`, perspective, `VisionConfig`. It may import only `domain/**`. ESLint forbids Angular, RxJS, Dexie, DOM globals and app-layer imports there, and allows `@techstark/opencv-js` **only** there. The worker entry, protocol handler and client stay in `core/workers`.
+
+## ADR-018 — Worker protocol in E2 (E2)
+
+- **Decision:** spec §9 messages `INIT`, `CALIBRATE`, `RESET`, `DISPOSE`, `READY`, `CALIBRATION_RESULT` and `ERROR` are implemented. `PROCESS_FRAME`/`RECOGNITION_RESULT` arrive with recognition in E3.
+- **Extensions:**
+  - `RECTIFY_FRAME { frame, frameId }` → `RECTIFIED_FRAME { frameId, image }`, needed for the "normalized board" step of the spec §13 calibration sequence.
+  - Optional `ERROR.requestType`, so errors without a `frameId` can be routed to their request.
+- **`CalibrationResult`** (undefined in the spec): `{ valid, issues, transform?, normalizedWidth, normalizedHeight }`. `CALIBRATE` receives canonical corners, with orientation already applied.
+- **Robustness:** both sides validate payloads. The client has timeouts (INIT 60 s, which includes compiling OpenCV; requests 15 s), supersedes duplicate requests, closes late `RECTIFIED_FRAME` bitmaps, terminates on crash and retries on the next call. Bitmaps are transferred, and the worker closes every bitmap it receives.
+
+## ADR-019 — Worker and camera lifetime (E2, resolves ADR-014)
+
+- **Decision:** `VisionWorkerClient` is provided by the calibration page, so leaving the route terminates the worker and frees OpenCV's memory (verified in E2E). Every camera-using page opens the camera on entry and releases it on exit. The chosen device is remembered by the root `CameraService`, so `/game/new` → `/calibration` keeps exactly one live stream (verified in E2E). The live game (E6) will decide whether to keep a single long-lived worker.
+
+## ADR-020 — Calibration persistence (E2-T06)
+
+- **Decision:** Dexie 4.4.7, database `damas-vision` schema v1 with only `calibrations: 'id, updatedAt'`. `isActive` is not indexed, because booleans are not valid IndexedDB keys. `games`, `settings` and `recognitionLogs` will be added as new schema versions in E7.
+- The repository implements the spec §11 interface plus `getActive()`. Errors map to `PersistenceError` codes with pt-BR messages (quota, unavailable, not found, duplicate).
+- Profiles store the image-order corners, the orientation and the source resolution. Corners are rescaled when the camera resolution changes.
+- Tests use `fake-indexeddb` 6.2.8 (dev dependency).
+
+## ADR-021 — Duplicate homography in TypeScript (E2)
+
+- **Decision:** a small pure-TS homography (`domain/board/homography.ts`) projects the grid overlay on the main thread while handles are dragged. OpenCV remains the implementation that warps pixels. A unit test asserts both agree to 1e-6.

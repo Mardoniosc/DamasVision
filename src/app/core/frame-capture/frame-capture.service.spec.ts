@@ -4,7 +4,7 @@ import { FakeMediaDevices } from '../../../../tests/fixtures/fake-media-devices'
 import { CAMERA_ENVIRONMENT } from '../camera/camera.config';
 import { CameraService } from '../camera/camera.service';
 import { FRAME_CAPTURE_CONFIG, FRAME_SOURCE_FACTORY } from './frame-capture.config';
-import { FrameCaptureService } from './frame-capture.service';
+import { FrameCaptureService, SnapshotError } from './frame-capture.service';
 
 describe('FrameCaptureService', () => {
   let devices: FakeMediaDevices;
@@ -179,5 +179,63 @@ describe('FrameCaptureService', () => {
     expect(sources[0]?.disposed).toBe(true);
     expect(devices.liveTracks()).toEqual([]);
     await expectNoFurtherCaptures();
+  });
+
+  describe('captureSnapshot()', () => {
+    it('returns one fresh frame and disposes its short-lived source', async () => {
+      await streamingCamera();
+      const capture = TestBed.inject(FrameCaptureService);
+
+      const frame = await capture.captureSnapshot();
+
+      expect(frame.frameId).toBe('frame-1');
+      expect(sources).toHaveLength(1);
+      expect(sources[0]?.disposed).toBe(true);
+      expect(capture.state()).toBe('STOPPED');
+    });
+
+    it('waits until the video delivers a frame', async () => {
+      await streamingCamera();
+      nextSourceSetup = (source) => {
+        source.ready = false;
+        setTimeout(() => (source.ready = true), 120);
+      };
+      const capture = TestBed.inject(FrameCaptureService);
+
+      const snapshot = capture.captureSnapshot({ timeoutMs: 1000, pollIntervalMs: 50 });
+      await vi.advanceTimersByTimeAsync(200);
+
+      await expect(snapshot).resolves.toMatchObject({ frameId: 'frame-1' });
+      expect(sources[0]?.captureCalls).toBeGreaterThan(1);
+    });
+
+    it('fails with a user-facing message when no frame arrives in time', async () => {
+      await streamingCamera();
+      nextSourceSetup = (source) => (source.ready = false);
+      const capture = TestBed.inject(FrameCaptureService);
+
+      const snapshot = capture.captureSnapshot({ timeoutMs: 300, pollIntervalMs: 50 });
+      const assertion = expect(snapshot).rejects.toThrow('a tempo');
+      await vi.advanceTimersByTimeAsync(400);
+      await assertion;
+
+      expect(sources[0]?.disposed).toBe(true);
+    });
+
+    it('requires an open camera stream', async () => {
+      const capture = TestBed.inject(FrameCaptureService);
+
+      await expect(capture.captureSnapshot()).rejects.toBeInstanceOf(SnapshotError);
+      expect(sources).toHaveLength(0);
+    });
+
+    it('wraps source failures and still disposes the source', async () => {
+      await streamingCamera();
+      nextSourceSetup = (source) => (source.startError = new Error('play() rejected'));
+      const capture = TestBed.inject(FrameCaptureService);
+
+      await expect(capture.captureSnapshot()).rejects.toThrow('Não foi possível capturar');
+      expect(sources[0]?.disposed).toBe(true);
+    });
   });
 });

@@ -2,7 +2,7 @@
 
 Local-first web application that observes a physical **Brazilian 64-square checkers** board through a camera, reconstructs the position, infers moves from stable observations and validates them with an independent TypeScript rules engine.
 
-> Status: **E0 — Foundation** (application shell only). Camera, calibration, recognition and the rules engine are not implemented yet. See [the backlog](docs/backlog/implementation-backlog.md).
+> Status: **E2 — Calibration** done (camera, frame capture, four-corner calibration, OpenCV.js perspective correction, 8×8 grid, saved calibrations). Piece recognition, the rules engine and game tracking are not implemented yet. See [the backlog](docs/backlog/implementation-backlog.md).
 
 Principles: vision observes, the engine decides; uncertainty is explicit (`UNKNOWN`); no backend, no cloud inference, no image upload.
 
@@ -46,6 +46,7 @@ The Angular service worker (`ngsw-config.json`) is registered only in production
 src/app/
   core/       camera, frame-capture, workers, persistence, app-state (services)
   domain/     pure TypeScript: board, game, move, rules, engine
+  vision/     worker-side pipeline: OpenCV.js loader, perspective (no Angular/DOM)
   features/   routed pages: home, camera (setup), calibration, recognition,
               live-game, game-history, settings
   shared/     reusable UI: components, directives, pipes, utilities
@@ -59,4 +60,5 @@ Layer rules are enforced by ESLint; see [CLAUDE.md](CLAUDE.md#layer-ownership-en
 
 - [Execution specification](docs/execution-specification.md)
 - [Architecture](docs/architecture/architecture.md) · [Decisions and versions](docs/architecture/decisions.md) · [Diagrams](docs/architecture/diagrams.md)
+- [Calibration](docs/vision/calibration.md)
 - [Implementation backlog](docs/backlog/implementation-backlog.md)

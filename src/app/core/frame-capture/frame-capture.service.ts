@@ -1,6 +1,11 @@
 import { DestroyRef, effect, inject, Injectable, signal, untracked } from '@angular/core';
 import { CameraService } from '../camera/camera.service';
-import { FRAME_CAPTURE_CONFIG, FRAME_SOURCE_FACTORY } from './frame-capture.config';
+import {
+  DEFAULT_SNAPSHOT_OPTIONS,
+  FRAME_CAPTURE_CONFIG,
+  FRAME_SOURCE_FACTORY,
+  SnapshotOptions,
+} from './frame-capture.config';
 import {
   CapturedFrame,
   EMPTY_FRAME_SCHEDULER_STATS,
@@ -11,6 +16,14 @@ import {
 import { FrameScheduler } from './frame-scheduler';
 
 export type FrameCaptureState = 'STOPPED' | 'STARTING' | 'RUNNING' | 'PAUSED' | 'ERROR';
+
+/** Snapshot failure with a user-facing message (pt-BR). */
+export class SnapshotError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'SnapshotError';
+  }
+}
 
 export interface FrameInfo {
   readonly frameId: string;
@@ -109,6 +122,41 @@ export class FrameCaptureService {
     }
     scheduler.start();
     this.stateState.set('RUNNING');
+  }
+
+  /**
+   * Captures one fresh frame from the camera stream with a short-lived source,
+   * independent of the scheduler. The caller owns (and must release) the frame.
+   * Rejects with a user-facing message (pt-BR).
+   */
+  async captureSnapshot(
+    options: SnapshotOptions = DEFAULT_SNAPSHOT_OPTIONS,
+  ): Promise<CapturedFrame> {
+    const stream = this.camera.stream();
+    if (!stream) {
+      throw new SnapshotError('Ative a câmera antes de capturar uma imagem.');
+    }
+    const source = this.createSource(stream);
+    try {
+      await source.start();
+      const deadline = Date.now() + options.timeoutMs;
+      for (;;) {
+        const frame = await source.capture();
+        if (frame) {
+          return frame;
+        }
+        if (Date.now() >= deadline) {
+          throw new SnapshotError('A câmera não entregou nenhuma imagem a tempo.');
+        }
+        await new Promise((resolve) => setTimeout(resolve, options.pollIntervalMs));
+      }
+    } catch (error) {
+      throw error instanceof SnapshotError
+        ? error
+        : new SnapshotError('Não foi possível capturar uma imagem da câmera.', { cause: error });
+    } finally {
+      source.dispose();
+    }
   }
 
   pause(): void {

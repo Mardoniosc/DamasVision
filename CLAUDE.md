@@ -58,7 +58,7 @@ First-time E2E setup: `npx playwright install chromium`.
 ## Environment and versions
 
 - Node 26.13.1 (`.nvmrc`), npm 11.20.0. `engines` mirrors Angular's supported Node range.
-- Angular 22.3.0, TypeScript 6.0.3, Tailwind 4.3.5, Vitest 5.1.1, Playwright 1.65.1, ESLint 10.15.0 + angular-eslint 22.8.0.
+- Angular 22.3.0, TypeScript 6.0.3, Tailwind 4.3.5, Vitest 5.1.1, Playwright 1.65.1, ESLint 10.15.0 + angular-eslint 22.8.0, OpenCV.js 5.0.0 (`@techstark/opencv-js@5.0.0-release.1`), Dexie 4.4.7.
 - Versions are pinned exactly (`.npmrc` has `save-exact=true`). Never upgrade a major version without approval; record any version change in `docs/architecture/decisions.md`.
 - Use the project-local CLI (`npx ng ...`); the global CLI may be an older, incompatible major.
 
@@ -75,18 +75,26 @@ First-time E2E setup: `npx playwright install chromium`.
 - `src/app/domain/**` — pure TypeScript. No `@angular/*`, RxJS, browser globals, OpenCV, Dexie/IndexedDB, nor imports from `core`, `features` or `shared`.
 - `src/app/core/camera/**` — camera lifecycle (the only place allowed to touch `navigator.mediaDevices`).
 - `src/app/core/frame-capture/**` — frame scheduling.
-- `src/app/core/workers/**` — worker protocol/client (the only place that creates `Worker`s).
+- `src/app/core/workers/**` — worker protocol, worker entry/handler and client (the only place that creates `Worker`s).
+- `src/app/vision/**` — worker-side pipeline (pure TS + OpenCV). May import only `domain/**`; no Angular, RxJS, Dexie or DOM globals. The **only** place allowed to import `@techstark/opencv-js`.
 - `src/app/core/persistence/**` — repositories and DB schema (the only place that touches IndexedDB/Dexie).
 - `src/app/core/app-state/**` — application-level state services.
-- `src/app/features/**` — UI and orchestration; no OpenCV, IndexedDB, `Worker` or camera APIs directly.
+- `src/app/features/**` — UI and orchestration (feature stores allowed); no OpenCV, IndexedDB, `Worker` or camera APIs directly.
 - `src/app/shared/**` — reusable UI only; must not import `features` or `core`.
 - `core/**` must not import `features/**`.
 
 If a rule blocks legitimate work, raise it instead of disabling it inline.
 
+## OpenCV.js pitfalls (see ADR-016)
+
+- Never `await`, return from an async function, or resolve a Promise with the raw OpenCV module object: it is (or inherits from) a Promise and breaks Promise resolution. Load it only through `createOpenCvLoader()`.
+- Create every `Mat`/OpenCV object inside `withResources` (`vision/resource-scope.ts`) or delete it in `finally`.
+- Bitmaps sent to the worker are transferred; the worker closes every bitmap it receives and the client closes late results.
+- The production build takes ~1 min because of the 13 MB OpenCV file; the dev server excludes it from Vite pre-bundling.
+
 ## Current status
 
-- G0 approved (2026-11-19).
-- E1 — Camera implemented. **Gate G1 awaiting approval.** Do not start E2 (calibration) or any later epic until the user approves G1.
-- Camera/capture tests use the fakes in `tests/fixtures/` (`FakeMediaDevices`, `FakeFrameSource`); E2E uses Chromium's synthetic camera flags in `playwright.config.ts`. Assert "no live tracks" after every lifecycle change.
+- G0 and G1 approved (2026-11-19).
+- E2 — Calibration implemented. **Gate G2 awaiting approval.** Do not start E3 (recognition) or any later epic until the user approves G2.
+- Test doubles live in `tests/fixtures/`: `FakeMediaDevices`, `FakeFrameSource`, `FakeVisionWorker`, `InMemoryCalibrationRepository`. Specs that need OpenCV load the real bundled build. E2E uses Chromium's synthetic camera (`playwright.config.ts`) and `tests/e2e/support/media-probe.ts`; assert "no live tracks" after every lifecycle change.
 - Backlog and gate status: `docs/backlog/implementation-backlog.md`.

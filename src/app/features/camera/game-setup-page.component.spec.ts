@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { FakeFrameSource } from '../../../../tests/fixtures/fake-frames';
 import { FakeMediaDevices } from '../../../../tests/fixtures/fake-media-devices';
 import { CAMERA_ENVIRONMENT, CameraEnvironment } from '../../core/camera/camera.config';
@@ -23,6 +24,7 @@ describe('GameSetupPageComponent (E1-T03)', () => {
     TestBed.configureTestingModule({
       imports: [GameSetupPageComponent],
       providers: [
+        provideRouter([]),
         {
           provide: CAMERA_ENVIRONMENT,
           useValue: environment ?? {
