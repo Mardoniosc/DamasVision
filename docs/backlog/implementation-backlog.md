@@ -75,12 +75,23 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | E5-T07 | Idempotency / duplicate prevention            | DONE                  |
 | **G5** | Synthetic observation tests infer legal moves | APPROVED (2026-11-19) |
 
+## E6 — Game integration
+
+| Task   | Description                                         | Status                |
+| ------ | --------------------------------------------------- | --------------------- |
+| E6-T01 | Game controller / state machine                     | DONE                  |
+| E6-T02 | Initial position validation                         | DONE                  |
+| E6-T03 | Commit protocol                                     | DONE                  |
+| E6-T04 | Live UI                                             | DONE                  |
+| E6-T05 | Recovery UI                                         | DONE                  |
+| E6-T06 | Undo only if robust                                 | DONE                  |
+| **G6** | End-to-end workflow with deterministic observations | APPROVED (2026-11-19) |
+
 ## Later epics
 
-| Epic | Scope            | Gate | Status |
-| ---- | ---------------- | ---- | ------ |
-| E6   | Game integration | G6   | TODO   |
-| E7   | Persistence      | G7   | TODO   |
-| E8   | Release quality  | G8   | TODO   |
+| Epic | Scope           | Gate | Status |
+| ---- | --------------- | ---- | ------ |
+| E7   | Persistence     | G7   | TODO   |
+| E8   | Release quality | G8   | TODO   |
 
 Task-level breakdown for E4–E8 is in the specification §17.

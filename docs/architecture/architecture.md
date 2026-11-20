@@ -86,6 +86,13 @@ Details, measurements and limitations: `docs/vision/recognition.md`; metrics on 
 - `vision/evaluation/` computes recognition metrics against labeled samples (ADR-036).
 - `shared/components/board-view` renders any observation (UNKNOWN, confidence, corrected squares) and will be reused by the live game.
 
+## Game integration (E6)
+
+- `GameSessionController` (`core/app-state`, root) owns the authoritative `GameSession` and the spec §12 phase (`domain/game/game-state-machine.ts`). It receives the G3-stabilized observations from the live page, runs the `MoveTracker` (E5), and commits through `commitMove` (engine-validated). Every change is persisted (`GAME_REPOSITORY`) before it is shown.
+- Setup: `/recognition` → confirmed position → "Iniciar partida" (`validateInitialPosition`) → `/game/:id`.
+- `/game/:id` (`LiveGamePageComponent`): official board, camera and reading, side to move, last move, history, controls. `GameRecoveryComponent` handles candidate confirmation, manual moves and explicit position correction.
+- Persistence: `GAME_REPOSITORY` is in memory until E7 (games are lost on reload).
+
 ## Runtime principles (from spec)
 
 1. Vision observes; engine decides.

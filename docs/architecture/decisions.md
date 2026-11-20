@@ -284,3 +284,21 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - `MoveCandidate` extends the spec's fields with the match class, pending/unknown squares, the confidence of the changed squares and `promotionUnmarked`. `MoveInferenceResult.warnings` uses typed codes.
   - The app chain runs the G3 per-square stabilizer, then the detector with `PIPELINE_INFERENCE_CONFIG` (2 identical boards over 200 ms). The generic defaults (3 over 500 ms) double the latency on already-consolidated input: 1.2 s and 11 missed moves out of 1,356, against 0.8 s and none, both with zero false commits.
 - **Consequence:** the Gate G5 test plays 1,356 synthetic moves frame by frame with occlusion, lifted pieces, delayed capture removal and noise. Every move is inferred, with zero false commits and a median 0.8 s after the board settles. Committing, the game state machine and the UI remain E6.
+
+## ADR-039 — Game integration: controller, commit protocol and recovery (E6)
+
+- **Context:** E6 connects the confirmed position, the camera, move inference (E5) and the engine (E4) into a live game, following spec §8 (commit protocol, recovery), §10 (state ownership) and §12 (state machine). Persistence is E7.
+- **Decision:**
+  - **Pure domain:**
+    - `domain/game/game-session.ts`: `validateInitialPosition` (E6-T02: no UNKNOWN, a valid board, both sides present; non-standard positions allowed, with the player to move chosen), `commitMove` (engine validation, `expectedPly` against duplicates, result: win first, then the history draws), `undoLastMove`, `correctPosition`, `endGame`.
+    - `domain/game/game-state-machine.ts`: spec §12 as a transition table; the controller applies only transitions listed there.
+    - `BoardProblem`: board problems as data, so the UI can word them in pt-BR.
+  - **`GameSessionController`** (`core/app-state`, root) is the only owner of the authoritative session. Vision observations come in through `observe()`; every change is validated by the engine, persisted, and only then shown. A save failure keeps the previous session. Commits are serialized: a second commit while one is being saved is a duplicate and is refused.
+  - **Persistence port:** `GAME_REPOSITORY` implements the spec §11 `GameRepository` / `PersistedGame`, plus `initialPlayer` and `adjustments`. Until E7 the implementation is in memory, so games are lost on reload and the live page says so; E7 replaces the provider behind the same token.
+  - **Recorded adjustments:** undo and explicit position corrections are recorded in `GameSession.adjustments` (spec §8: authoritative position changes must be explicit and recorded). Undo is allowed back to the last correction only, where the history is exact (E6-T06 "undo only if robust"). After a correction, the history-based draw rules restart.
+  - **Spec ambiguity resolved:** §12 says `MOVE_INFERENCE → MONITORING` on no match, while §8 says "if no legal outcome matches, enter reconciliation". A `NO_MATCH` returns to monitoring (the game is not blocked) and shows the discrepancy with its recovery options. `AMBIGUOUS` and partial or low-confidence matches enter `RECONCILIATION` and need the user's choice. A pending decision is resolved only by a confirmed move, by retrying, or by a fully visible board equal to the official one: UNKNOWN squares are no evidence.
+  - **UI:**
+    - `/recognition` gains "Iniciar partida" (player labels, side to move for non-standard positions).
+    - `/game/:id` shows the official board, the camera with its reading, side to move, last move, history, status, controls (pause, undo, end by agreement or resignation) and `GameRecoveryComponent` (confirm a candidate, register a move by hand, correct the position explicitly).
+    - `RecognitionStore.setLivePaused` pauses the camera with the game.
+- **Consequence:** the engine is the only authority. Vision proposes moves; ambiguous, illegal or partial readings never change the game without the user. Gate G6 is covered by controller, page and Chromium E2E tests with deterministic observations.

@@ -319,6 +319,20 @@ export class RecognitionStore {
     this.capture.resume();
   }
 
+  /**
+   * Pauses or resumes the live reading without entering correction (the live game's
+   * pause, E6). Resuming starts the temporal consolidation over.
+   */
+  setLivePaused(paused: boolean): void {
+    if (this.phaseState() !== 'RECOGNIZING') return;
+    if (paused) {
+      this.capture.pause();
+    } else {
+      this.resetStabilization();
+      this.capture.resume();
+    }
+  }
+
   selectSquare(index: SquareIndex): void {
     if (this.phaseState() === 'CORRECTING' && isPlayableSquare(index)) {
       this.selectedState.set(this.selectedState() === index ? null : index);

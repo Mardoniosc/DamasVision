@@ -1,0 +1,209 @@
+<section class="space-y-6" aria-labelledby="game-heading">
+  <header class="space-y-1">
+    <p class="text-sm font-medium text-brand-700">Partida</p>
+    @if (session(); as s) {
+      <h1 id="game-heading" class="text-2xl font-semibold tracking-tight">
+        {{ s.whitePlayerLabel }} × {{ s.blackPlayerLabel }}
+      </h1>
+    } @else {
+      <h1 id="game-heading" class="text-2xl font-semibold tracking-tight">Partida</h1>
+    }
+  </header>
+
+  @switch (loadState()) {
+    @case ('LOADING') {
+      <p role="status" class="text-sm text-stone-600">Abrindo a partida…</p>
+    }
+    @case ('NOT_FOUND') {
+      <div
+        role="alert"
+        class="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm"
+      >
+        <p>
+          Partida não encontrada. Por enquanto as partidas ficam guardadas só enquanto a página está
+          aberta; o salvamento no dispositivo chega com a persistência (E7).
+        </p>
+        <a
+          routerLink="/game/new"
+          class="inline-block rounded-md bg-brand-600 px-3 py-2 font-medium text-white hover:bg-brand-700"
+        >
+          Nova partida
+        </a>
+      </div>
+    }
+  }
+
+  @if (loadState() === 'READY' && session(); as s) {
+    <div class="grid gap-6 lg:grid-cols-[3fr_2fr]">
+      <div class="space-y-4">
+        <section
+          class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+          aria-labelledby="board-heading"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="board-heading" class="font-semibold">Tabuleiro oficial</h2>
+            <span
+              role="status"
+              aria-live="polite"
+              class="rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-700"
+              data-testid="game-phase"
+            >
+              {{ phaseLabel() }}
+            </span>
+          </div>
+          <app-board-view
+            [cells]="s.board.cells"
+            [changed]="lastMoveSquares()"
+            label="Tabuleiro oficial da partida"
+          />
+          <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt class="text-stone-500">Vez de</dt>
+            <dd data-testid="to-move">
+              {{ s.status === 'FINISHED' ? '—' : toMoveLabel(s.currentPlayer) }}
+            </dd>
+            <dt class="text-stone-500">Último lance</dt>
+            <dd data-testid="last-move">{{ lastMoveText() }}</dd>
+          </dl>
+          @if (result(); as text) {
+            <p role="status" class="font-medium text-brand-700" data-testid="game-result">
+              {{ text }}
+            </p>
+          }
+          @if (statusMessage(); as message) {
+            <p role="status" class="text-sm text-amber-800" data-testid="game-status">
+              {{ message }}
+            </p>
+          }
+          @if (game.error(); as error) {
+            <p role="alert" class="text-sm text-red-800" data-testid="game-error">{{ error }}</p>
+          }
+        </section>
+
+        <app-game-recovery />
+      </div>
+
+      <div class="space-y-4">
+        <section
+          class="space-y-2 rounded-lg border border-stone-200 bg-white p-4"
+          aria-labelledby="camera-heading"
+        >
+          <h2 id="camera-heading" class="font-semibold">Câmera</h2>
+          @switch (recognition.phase()) {
+            @case ('NO_CALIBRATION') {
+              <p role="alert" class="text-sm text-amber-800">
+                Sem calibração salva: os lances podem ser registrados manualmente.
+                <a routerLink="/calibration" class="underline">Calibrar</a>
+              </p>
+            }
+            @case ('ERROR') {
+              <p role="alert" class="text-sm text-red-800">
+                {{ recognition.error() }} Os lances podem ser registrados manualmente.
+              </p>
+            }
+            @default {
+              <app-recognition-preview
+                [stream]="camera.stream()"
+                [frameSize]="recognition.frameSize()"
+                [markers]="recognition.markers()"
+                [lowConfidenceBelow]="acceptable"
+              />
+              @if (observedNote(); as note) {
+                <p class="text-xs text-stone-500">{{ note }}</p>
+              }
+            }
+          }
+          <a routerLink="/calibration" class="text-sm text-brand-700 underline">Recalibrar</a>
+        </section>
+
+        <section
+          class="space-y-3 rounded-lg border border-stone-200 bg-white p-4"
+          aria-labelledby="controls-heading"
+        >
+          <h2 id="controls-heading" class="font-semibold">Controles</h2>
+          <div class="flex flex-wrap gap-2">
+            @if (s.status !== 'FINISHED') {
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+                [disabled]="game.busy()"
+                (click)="togglePause()"
+              >
+                {{ game.phase() === 'PAUSED' ? 'Retomar' : 'Pausar' }}
+              </button>
+            }
+            <button
+              type="button"
+              class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-stone-50 disabled:opacity-50"
+              [disabled]="!canUndo() || game.busy()"
+              (click)="game.undo()"
+            >
+              Desfazer último lance
+            </button>
+            @if (s.status !== 'FINISHED') {
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-stone-50"
+                [attr.aria-expanded]="confirmingEnd()"
+                (click)="confirmingEnd.set(!confirmingEnd())"
+              >
+                Encerrar partida
+              </button>
+            }
+          </div>
+          @if (confirmingEnd()) {
+            <div
+              class="flex flex-wrap gap-2 rounded-md bg-stone-50 p-2 text-sm"
+              data-testid="end-options"
+            >
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-2.5 py-1"
+                (click)="endGame('DRAW')"
+              >
+                Empate por acordo
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-2.5 py-1"
+                (click)="endGame('WHITE_RESIGNS')"
+              >
+                Brancas desistem
+              </button>
+              <button
+                type="button"
+                class="rounded-md border border-stone-300 bg-white px-2.5 py-1"
+                (click)="endGame('BLACK_RESIGNS')"
+              >
+                Pretas desistem
+              </button>
+            </div>
+          }
+        </section>
+
+        <section
+          class="space-y-2 rounded-lg border border-stone-200 bg-white p-4"
+          aria-labelledby="history-heading"
+        >
+          <h2 id="history-heading" class="font-semibold">Lances</h2>
+          @if (history().length === 0) {
+            <p class="text-sm text-stone-500">Nenhum lance ainda.</p>
+          } @else {
+            <ol class="grid grid-cols-[auto_1fr] gap-x-3 text-sm" data-testid="move-history">
+              @for (entry of history(); track entry.ply) {
+                <li class="contents">
+                  <span class="text-stone-500">{{ entry.ply }}.</span>
+                  <span>
+                    {{ entry.notation }}
+                    <span class="text-xs text-stone-500"
+                      >({{ playerNames[entry.player] }}{{ entry.manual ? ', manual' : '' }})</span
+                    >
+                  </span>
+                </li>
+              }
+            </ol>
+          }
+        </section>
+      </div>
+    </div>
+  }
+</section>

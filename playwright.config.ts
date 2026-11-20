@@ -4,7 +4,8 @@ import { SYNTHETIC_BOARD_VIDEO } from './tests/e2e/support/paths';
 const PORT = 4300;
 const BASE_URL = `http://localhost:${PORT}`;
 const isCI = Boolean(process.env['CI']);
-const RECOGNITION_SPECS = /recognition\.spec\.ts/;
+/** Specs that need the synthetic board video (recognition and the live game). */
+const RECOGNITION_SPECS = /(recognition|live-game)\.spec\.ts/;
 
 /**
  * E2E in Chromium with synthetic cameras:

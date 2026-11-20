@@ -1,5 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
+import { GameSessionController } from '../../core/app-state/game-session.controller';
 import { FakeFrameSource } from '../../../../tests/fixtures/fake-frames';
 import { FakeMediaDevices } from '../../../../tests/fixtures/fake-media-devices';
 import { FakeVisionWorker, happyPathReply } from '../../../../tests/fixtures/fake-vision-worker';
@@ -175,6 +176,42 @@ describe('RecognitionPageComponent (E3-T08)', () => {
     toggle?.click();
     await stable();
     expect(element.querySelector('[data-testid="recognition-debug"]')).toBeNull();
+  });
+
+  it('starts a game from the confirmed position (E6-T02)', async () => {
+    saveProfile();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const { element, button, square, stable } = await render();
+    await vi.waitFor(
+      async () => {
+        await stable();
+        expect(square(1)?.getAttribute('data-piece')).toBe('BLACK');
+      },
+      { timeout: 3000 },
+    );
+    button('Pausar e corrigir')?.click();
+    await stable();
+    square(17)?.click();
+    await stable();
+    button('Preta')?.click();
+    await stable();
+    button('Confirmar posição')?.click();
+    await stable();
+
+    const white = element.querySelector<HTMLInputElement>('[data-testid="white-label"]');
+    if (!white) throw new Error('no label input');
+    white.value = 'Ana';
+    white.dispatchEvent(new Event('input'));
+    button('Iniciar partida')?.click();
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalled());
+
+    const session = TestBed.inject(GameSessionController).session();
+    expect(session).toMatchObject({
+      whitePlayerLabel: 'Ana',
+      blackPlayerLabel: 'Pretas',
+      currentPlayer: 'WHITE',
+    });
+    expect(navigate).toHaveBeenCalledWith(['/game', session?.id]);
   });
 
   it('releases the camera and terminates the worker when leaving', async () => {

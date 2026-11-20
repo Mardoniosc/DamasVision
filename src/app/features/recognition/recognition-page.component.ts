@@ -1,5 +1,9 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { GameSessionController } from '../../core/app-state/game-session.controller';
+import { PlayerColor } from '../../domain/board/piece';
+import { validateInitialPosition } from '../../domain/game/game-session';
+import { initialPositionMessage } from '../live-game/game-messages';
 import { CameraService } from '../../core/camera/camera.service';
 import { VISION_CONFIG, VisionWorkerClient } from '../../core/workers/vision-worker.client';
 import { Piece } from '../../domain/board/piece';
@@ -114,6 +118,52 @@ export class RecognitionPageComponent {
     );
   });
   protected readonly exportState = signal<ExportState>({ status: 'IDLE' });
+  private readonly game = inject(GameSessionController);
+  private readonly router = inject(Router);
+  /** Game setup (E6-T02): player labels, side to move, start. */
+  protected readonly whiteLabel = signal('');
+  protected readonly blackLabel = signal('');
+  protected readonly playerToMove = signal<PlayerColor>('WHITE');
+  protected readonly startError = signal<string | null>(null);
+  protected readonly initialPosition = computed(() => {
+    const confirmed = this.store.confirmed();
+    return confirmed ? validateInitialPosition(confirmed) : null;
+  });
+  protected readonly initialProblems = computed(() =>
+    (this.initialPosition()?.problems ?? []).map(initialPositionMessage),
+  );
+
+  protected setLabel(color: PlayerColor, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    (color === 'WHITE' ? this.whiteLabel : this.blackLabel).set(value);
+  }
+
+  protected setPlayerToMove(event: Event): void {
+    this.playerToMove.set(
+      (event.target as HTMLSelectElement).value === 'BLACK' ? 'BLACK' : 'WHITE',
+    );
+  }
+
+  protected async startGame(): Promise<void> {
+    const confirmed = this.store.confirmed();
+    const validation = this.initialPosition();
+    if (!confirmed || !validation?.valid) return;
+    this.startError.set(null);
+    try {
+      const session = await this.game.startGame({
+        cells: confirmed.cells,
+        whitePlayerLabel: this.whiteLabel(),
+        blackPlayerLabel: this.blackLabel(),
+        playerToMove: validation.isStandard ? 'WHITE' : this.playerToMove(),
+        ...(this.store.profile()?.id ? { calibrationId: this.store.profile()?.id } : {}),
+      });
+      await this.router.navigate(['/game', session.id]);
+    } catch (error) {
+      this.startError.set(
+        error instanceof Error ? error.message : 'Não foi possível iniciar a partida.',
+      );
+    }
+  }
   /** Dataset metadata for the exported sample (G3). */
   protected readonly conditionOptions = SAMPLE_CONDITIONS.map((condition) => ({
     condition,

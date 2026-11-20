@@ -258,6 +258,72 @@
                   ({{ metricsPercent() }}%) · {{ metrics.corrected }} corrigida(s)
                 </p>
               }
+              <section
+                class="space-y-3 rounded-md border border-brand-100 bg-brand-50 p-3"
+                aria-labelledby="start-heading"
+                data-testid="start-game"
+              >
+                <h3 id="start-heading" class="text-sm font-semibold">Iniciar partida</h3>
+                @if (initialProblems().length > 0) {
+                  <ul role="alert" class="list-disc pl-5 text-sm text-red-800">
+                    @for (problem of initialProblems(); track problem) {
+                      <li>{{ problem }}</li>
+                    }
+                  </ul>
+                } @else {
+                  <div class="grid gap-2 sm:grid-cols-2">
+                    <label class="block text-sm">
+                      <span class="text-stone-600">Jogador das brancas</span>
+                      <input
+                        class="mt-1 block w-full rounded-md border border-stone-300 px-2 py-1.5"
+                        maxlength="40"
+                        [value]="whiteLabel()"
+                        (input)="setLabel('WHITE', $event)"
+                        data-testid="white-label"
+                      />
+                    </label>
+                    <label class="block text-sm">
+                      <span class="text-stone-600">Jogador das pretas</span>
+                      <input
+                        class="mt-1 block w-full rounded-md border border-stone-300 px-2 py-1.5"
+                        maxlength="40"
+                        [value]="blackLabel()"
+                        (input)="setLabel('BLACK', $event)"
+                        data-testid="black-label"
+                      />
+                    </label>
+                  </div>
+                  @if (initialPosition()?.isStandard === false) {
+                    <label class="block text-sm">
+                      <span class="text-stone-600"
+                        >Posição diferente da inicial: quem joga agora?</span
+                      >
+                      <select
+                        class="mt-1 block rounded-md border border-stone-300 px-2 py-1.5"
+                        (change)="setPlayerToMove($event)"
+                        data-testid="player-to-move"
+                      >
+                        <option value="WHITE" [selected]="playerToMove() === 'WHITE'">
+                          Brancas
+                        </option>
+                        <option value="BLACK" [selected]="playerToMove() === 'BLACK'">
+                          Pretas
+                        </option>
+                      </select>
+                    </label>
+                  }
+                  <button
+                    type="button"
+                    class="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                    (click)="startGame()"
+                  >
+                    Iniciar partida
+                  </button>
+                }
+                @if (startError(); as message) {
+                  <p role="alert" class="text-sm text-red-800">{{ message }}</p>
+                }
+              </section>
               <fieldset class="space-y-2" data-testid="sample-metadata">
                 <legend class="text-sm font-medium">Condições desta amostra (opcional)</legend>
                 <div class="flex flex-wrap gap-x-4 gap-y-1">

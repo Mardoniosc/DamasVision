@@ -6,7 +6,10 @@ export type GameResultReason =
   | 'NO_LEGAL_MOVES'
   | 'THREEFOLD_REPETITION'
   | 'TWENTY_KING_MOVES'
-  | 'ENDGAME_FIVE_MOVES';
+  | 'ENDGAME_FIVE_MOVES'
+  /** Ended by the players from the UI (E6). */
+  | 'AGREEMENT'
+  | 'RESIGNATION';
 
 /** Spec §5 `GameResult`; `reason` uses the codes above. */
 export interface GameResult {

@@ -3,6 +3,7 @@ import { Title } from '@angular/platform-browser';
 import { provideRouter, Router, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../../src/app/app.routes';
+import { GAME_REPOSITORY } from '../../src/app/core/persistence/game.repository';
 
 /**
  * Integration: real route table + lazy feature components, rendered through the router.
@@ -38,10 +39,17 @@ describe('Shell navigation (integration)', () => {
   }
 
   it('binds the :id route parameter into the live game page', async () => {
-    const element = await navigate('/game/abc-123');
+    const getById = vi.spyOn(TestBed.inject(GAME_REPOSITORY), 'getById');
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl('/game/abc-123');
+    const element = harness.routeNativeElement as HTMLElement;
 
     expect(element.querySelector('h1')?.textContent?.trim()).toBe('Partida');
-    expect(element.querySelector('code')?.textContent).toBe('abc-123');
+    expect(getById).toHaveBeenCalledWith('abc-123');
+    await vi.waitFor(() => {
+      harness.detectChanges();
+      expect(element.textContent).toContain('Partida não encontrada');
+    });
   });
 
   it('redirects unknown URLs to the home page', async () => {

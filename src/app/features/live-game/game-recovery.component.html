@@ -1,0 +1,153 @@
+@if (active()) {
+  <section
+    class="space-y-4 rounded-lg border border-stone-200 bg-white p-4"
+    aria-labelledby="recovery-heading"
+    data-testid="game-recovery"
+  >
+    <h2 id="recovery-heading" class="font-semibold">Correções</h2>
+
+    @if (pending(); as decision) {
+      <div
+        class="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm"
+        role="alert"
+        data-testid="pending-decision"
+      >
+        <p>{{ pendingMessage() }}</p>
+        @if (candidates().length > 0) {
+          <p class="font-medium">Qual lance foi feito?</p>
+          <div class="flex flex-wrap gap-2">
+            @for (move of candidates(); track move.id) {
+              <button
+                type="button"
+                class="rounded-md bg-brand-600 px-2.5 py-1.5 font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                [disabled]="game.busy()"
+                (click)="confirm(move)"
+              >
+                Confirmar {{ moveLabel(move) }}
+              </button>
+            }
+          </div>
+        }
+        <button
+          type="button"
+          class="rounded-md border border-stone-300 bg-white px-2.5 py-1.5"
+          (click)="game.retry()"
+        >
+          Ler o tabuleiro de novo
+        </button>
+      </div>
+    }
+
+    <details class="text-sm" data-testid="manual-moves">
+      <summary class="cursor-pointer font-medium">Registrar lance manualmente</summary>
+      <div class="mt-2 flex flex-wrap gap-2">
+        @for (move of game.legalMoves(); track move.id) {
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-2.5 py-1 hover:bg-stone-50 disabled:opacity-50"
+            [disabled]="game.busy()"
+            [attr.data-move]="move.id"
+            (click)="confirm(move)"
+          >
+            {{ moveLabel(move) }}
+          </button>
+        } @empty {
+          <span class="text-stone-500">Nenhum lance legal.</span>
+        }
+      </div>
+    </details>
+
+    <details class="text-sm" [open]="editing()" data-testid="position-correction">
+      <summary class="cursor-pointer font-medium">Corrigir a posição oficial</summary>
+      @if (!editing()) {
+        <p class="mt-2 text-stone-600">
+          Use quando o tabuleiro físico foi esbarrado ou um lance não foi registrado. A mudança fica
+          registrada na partida.
+        </p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-2.5 py-1"
+            (click)="startEditing(true)"
+          >
+            Partir do que a câmera vê
+          </button>
+          <button
+            type="button"
+            class="rounded-md border border-stone-300 bg-white px-2.5 py-1"
+            (click)="startEditing(false)"
+          >
+            Partir da posição oficial
+          </button>
+        </div>
+      } @else if (draft(); as cells) {
+        <div class="mt-2 space-y-3">
+          <app-board-view
+            [cells]="cells"
+            [selected]="selected()"
+            [interactive]="true"
+            label="Posição a corrigir"
+            (squareSelect)="select($event)"
+          />
+          @if (selected() !== null) {
+            <div class="flex flex-wrap gap-2" role="group" aria-label="Conteúdo da casa">
+              @for (option of pieceOptions; track option.piece) {
+                <button
+                  type="button"
+                  class="rounded-md border border-stone-300 bg-white px-2.5 py-1"
+                  [attr.aria-pressed]="cells[selected() ?? 0] === option.piece"
+                  (click)="setPiece(option.piece)"
+                >
+                  {{ option.label }}
+                </button>
+              }
+            </div>
+          }
+          <label class="block">
+            <span class="text-stone-600">Quem joga agora</span>
+            <select
+              class="mt-1 block rounded-md border border-stone-300 px-2 py-1.5"
+              (change)="setDraftPlayer($event)"
+            >
+              <option value="WHITE" [selected]="draftPlayer() === 'WHITE'">Brancas</option>
+              <option value="BLACK" [selected]="draftPlayer() === 'BLACK'">Pretas</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-stone-600">Motivo (opcional)</span>
+            <input
+              class="mt-1 block w-full rounded-md border border-stone-300 px-2 py-1.5"
+              maxlength="120"
+              [value]="reason()"
+              (input)="setReason($event)"
+            />
+          </label>
+          @if (draftProblems().length > 0) {
+            <ul role="alert" class="list-disc pl-5 text-red-800">
+              @for (problem of draftProblems(); track problem) {
+                <li>{{ problem }}</li>
+              }
+            </ul>
+          }
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-md bg-brand-600 px-3 py-1.5 font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+              [disabled]="!draftValidation()?.valid || game.busy()"
+              (click)="applyCorrection()"
+            >
+              Confirmar nova posição
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-stone-300 bg-white px-3 py-1.5"
+              (click)="editing.set(false)"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      }
+    </details>
+  </section>
+}

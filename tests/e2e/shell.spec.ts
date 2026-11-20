@@ -35,11 +35,11 @@ test.describe('Application shell', () => {
     });
   }
 
-  test('deep link to a live game shows its id', async ({ page }) => {
+  test('deep link to an unknown game explains it was not found', async ({ page }) => {
     await page.goto('/game/e2e-42');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Partida' })).toBeVisible();
-    await expect(page.getByText('e2e-42')).toBeVisible();
+    await expect(page.getByText('Partida não encontrada')).toBeVisible();
   });
 
   test('reports no console errors on load', async ({ page }) => {

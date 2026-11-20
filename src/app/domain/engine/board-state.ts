@@ -29,36 +29,60 @@ export class InvalidBoardError extends Error {
   }
 }
 
+/** Why a board is not a valid position, as data (for messages in any language). */
+export type BoardProblem =
+  | { readonly code: 'CELL_COUNT'; readonly count: number }
+  | { readonly code: 'NOT_A_PIECE'; readonly square: number; readonly value: string }
+  | { readonly code: 'LIGHT_SQUARE'; readonly square: number; readonly piece: Piece }
+  | { readonly code: 'TOO_MANY_PIECES'; readonly color: PlayerColor; readonly count: number }
+  | { readonly code: 'MAN_ON_PROMOTION_ROW'; readonly square: number; readonly piece: Piece };
+
 /** Every reason why `board` cannot be a Brazilian checkers position (empty when valid). */
-export function boardIssues(board: BoardState): string[] {
+export function boardProblems(board: BoardState): BoardProblem[] {
   const cells: readonly unknown[] = board.cells;
-  if (cells.length !== SQUARE_COUNT) {
-    return [`expected ${SQUARE_COUNT} cells, got ${cells.length}`];
-  }
-  const issues: string[] = [];
+  if (cells.length !== SQUARE_COUNT) return [{ code: 'CELL_COUNT', count: cells.length }];
+  const problems: BoardProblem[] = [];
   const counts: Record<PlayerColor, number> = { WHITE: 0, BLACK: 0 };
   cells.forEach((cell, index) => {
     if (!isPiece(cell)) {
-      issues.push(`cell ${index} is not a piece: ${String(cell)}`);
+      problems.push({ code: 'NOT_A_PIECE', square: index, value: String(cell) });
       return;
     }
     const color = pieceColor(cell);
     if (!color) return;
     if (!isPlayableSquare(index)) {
-      issues.push(`${cell} on light square ${index}`);
+      problems.push({ code: 'LIGHT_SQUARE', square: index, piece: cell });
       return;
     }
     counts[color]++;
     if (!isKing(cell) && Math.floor(index / BOARD_SIZE) === promotionRow(color)) {
-      issues.push(`${cell} man on its promotion row at ${squareName(index)}`);
+      problems.push({ code: 'MAN_ON_PROMOTION_ROW', square: index, piece: cell });
     }
   });
   for (const color of ['WHITE', 'BLACK'] as const) {
     if (counts[color] > BRAZILIAN_RULES.piecesPerSide) {
-      issues.push(`${counts[color]} ${color} pieces (max ${BRAZILIAN_RULES.piecesPerSide})`);
+      problems.push({ code: 'TOO_MANY_PIECES', color, count: counts[color] });
     }
   }
-  return issues;
+  return problems;
+}
+
+/** `boardProblems` as developer-facing English text. */
+export function boardIssues(board: BoardState): string[] {
+  return boardProblems(board).map((problem) => {
+    switch (problem.code) {
+      case 'CELL_COUNT':
+        return `expected ${SQUARE_COUNT} cells, got ${problem.count}`;
+      case 'NOT_A_PIECE':
+        return `cell ${problem.square} is not a piece: ${problem.value}`;
+      case 'LIGHT_SQUARE':
+        return `${problem.piece} on light square ${problem.square}`;
+      case 'MAN_ON_PROMOTION_ROW':
+        return `${problem.piece} man on its promotion row at ${squareName(problem.square)}`;
+      case 'TOO_MANY_PIECES':
+        return `${problem.count} ${problem.color} pieces (max ${BRAZILIAN_RULES.piecesPerSide})`;
+    }
+  });
 }
 
 export function assertValidBoard(board: BoardState): void {
