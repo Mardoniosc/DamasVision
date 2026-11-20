@@ -40,7 +40,14 @@ const BROWSER_GLOBALS_FORBIDDEN_IN_DOMAIN = [
 
 module.exports = defineConfig([
   {
-    ignores: ['dist/**', 'coverage/**', '.angular/**', 'playwright-report/**', 'test-results/**'],
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      '.angular/**',
+      'playwright-report/**',
+      'test-results/**',
+      'vision-service/**',
+    ],
   },
   {
     files: ['**/*.ts'],

@@ -1,0 +1,15 @@
+[project]
+name = "damas-vision-service"
+version = "0.1.0"
+description = "Optional local vision service for Damas Vision (G3.1, ADR-042): observes a checkers board, never decides moves."
+requires-python = ">=3.11,<3.14"
+# Exact runtime pins live in requirements.txt (direct) and requirements.lock (full freeze).
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # Starlette 1.10 recommends `httpx2` for its TestClient; httpx 0.28 is the approved pin (G3.1).
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]

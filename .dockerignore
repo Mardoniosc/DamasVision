@@ -1,0 +1,16 @@
+# Build context of the web image: only what `ng build` needs (see Dockerfile).
+*
+!package.json
+!package-lock.json
+!.npmrc
+!angular.json
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.worker.json
+!ngsw-config.json
+!.postcssrc.json
+!public/**
+!src/**
+!docker/nginx.conf
+!docker/deployment.json
+src/**/*.spec.ts

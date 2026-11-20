@@ -1,0 +1,37 @@
+# Damas Vision in containers: the app (nginx) and the optional local vision service (Python).
+# Only port 8092 is published, on this computer's loopback interface: open
+# http://localhost:8092 (a secure context, so the camera works). See docs/release/docker.md.
+name: damas-vision
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: damas-vision-web:0.1.0-rc.1
+    ports:
+      # Loopback by default: frames stay on this computer (ADR-042/043). To serve the
+      # network, start with DAMAS_VISION_BIND=0.0.0.0 (see docs/release/docker.md: other
+      # devices need HTTPS for the camera).
+      - '${DAMAS_VISION_BIND:-127.0.0.1}:8092:8092'
+    depends_on:
+      vision:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [internal]
+
+  vision:
+    build:
+      context: vision-service
+    image: damas-vision-service:0.1.0
+    # No "ports": reachable only from the web container, as http://vision:8765.
+    environment:
+      DAMAS_VISION_LOG_LEVEL: INFO
+      DAMAS_VISION_ORIGINS: http://localhost:8092,http://127.0.0.1:8092
+    read_only: true
+    tmpfs: [/tmp]
+    restart: unless-stopped
+    networks: [internal]
+
+networks:
+  internal: {}

@@ -10,6 +10,7 @@ import { FRAME_SOURCE_FACTORY } from '../../core/frame-capture/frame-capture.con
 import { FrameCaptureService } from '../../core/frame-capture/frame-capture.service';
 import { CALIBRATION_REPOSITORY } from '../../core/persistence/calibration.repository';
 import { PersistedCalibration } from '../../core/persistence/persistence.models';
+import { VisionProviderState } from '../../core/workers/vision-provider.state';
 import { VISION_WORKER_FACTORY, VisionWorkerClient } from '../../core/workers/vision-worker.client';
 import {
   VisionWorkerRequest,
@@ -288,5 +289,78 @@ describe('RecognitionStore', () => {
     const recognition = await startRecognizing();
 
     await expect(recognition.buildLabeledSample()).rejects.toThrow('Confirme');
+  });
+
+  describe('with the local vision service (G3.1)', () => {
+    const useService = () =>
+      TestBed.inject(VisionProviderState).set({
+        kind: 'local-service',
+        serviceUrl: 'http://127.0.0.1:8765',
+      });
+
+    it('says the service did not answer when it cannot start', async () => {
+      useService();
+      reply = (message) =>
+        message.type === 'INIT'
+          ? { type: 'ERROR', code: 'SERVICE_UNAVAILABLE', message: 'down', requestType: 'INIT' }
+          : happyPathReply(message);
+      repository.profiles.set(PROFILE.id, PROFILE);
+
+      await store().start();
+
+      expect(store().phase()).toBe('ERROR');
+      expect(store().error()).toContain('serviço de visão local não respondeu');
+      expect(store().error()).toContain('http://127.0.0.1:8765');
+    });
+
+    it('stops with an explicit message after consecutive unanswered frames', async () => {
+      useService();
+      const recognition = await startRecognizing();
+      reply = (message) =>
+        message.type === 'PROCESS_FRAME'
+          ? {
+              type: 'ERROR',
+              code: 'SERVICE_UNAVAILABLE',
+              message: 'down',
+              frameId: message.frameId,
+              requestType: 'PROCESS_FRAME',
+            }
+          : happyPathReply(message);
+
+      await vi.waitFor(() => expect(recognition.phase()).toBe('ERROR'), { timeout: 3000 });
+
+      expect(recognition.error()).toContain('npm run vision:serve');
+      expect(devices.liveTracks()).not.toEqual([]); // the camera stays open for a retry
+    });
+
+    it('treats isolated failures as dropped frames', async () => {
+      useService();
+      const recognition = await startRecognizing();
+      let failures = 0;
+      reply = (message) => {
+        if (message.type === 'PROCESS_FRAME' && failures < 2) {
+          failures++;
+          return {
+            type: 'ERROR',
+            code: 'SERVICE_UNAVAILABLE',
+            message: 'slow',
+            frameId: message.frameId,
+            requestType: 'PROCESS_FRAME',
+          };
+        }
+        return message.type === 'PROCESS_FRAME'
+          ? {
+              type: 'RECOGNITION_RESULT',
+              frameId: message.frameId,
+              result: recognitionResultFrom(readCells()),
+            }
+          : happyPathReply(message);
+      };
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      expect(failures).toBe(2);
+      expect(recognition.phase()).toBe('RECOGNIZING');
+    });
   });
 });

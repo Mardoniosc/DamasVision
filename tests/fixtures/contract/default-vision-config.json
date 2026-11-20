@@ -1,0 +1,52 @@
+{
+  "normalizedBoardWidth": 800,
+  "normalizedBoardHeight": 800,
+  "analysisIntervalMs": 200,
+  "stabilityWindowSize": 5,
+  "stableObservationCount": 3,
+  "confidenceThresholds": {
+    "high": 0.95,
+    "acceptable": 0.8,
+    "uncertain": 0.6
+  },
+  "roiInsetRatio": 0.15,
+  "classifier": {
+    "colorThresholds": {
+      "pixelForegroundDistance": 0.12,
+      "shadowMinRatio": 0.45,
+      "glareMaxRatio": 1.35,
+      "shadowChromaTolerance": 0.04,
+      "chromaMinLuminance": 0.12,
+      "whiteMinContrastRatio": 1.5,
+      "blackMaxContrastRatio": 0.65,
+      "contrastSoftness": 0.35,
+      "kingMarkMinChroma": 0.08,
+      "kingMarkMinLuminance": 0.22,
+      "kingMarkBlendTolerance": 0.04,
+      "kingMarkMinCoverage": 0.4,
+      "kingMarkCoverageSoftness": 0.25,
+      "darkSquareMinRelativeLuminance": 0.22,
+      "backgroundChromaTolerance": 0.06,
+      "backgroundRatioTolerance": 0.25,
+      "pieceChromaTolerance": 0.05,
+      "lightSquareChromaTolerance": 0.05,
+      "underexposedMaxLuminance": 0.12,
+      "overexposedMinLuminance": 0.92
+    },
+    "shapeThresholds": {
+      "presenceMinRatio": 0.45,
+      "emptyMaxRatio": 0.15,
+      "pieceRadiusRatio": 0.3,
+      "backgroundMinRadiusRatio": 0.47,
+      "kingMarkRadiusRatio": 0.1,
+      "occupancyRingMinRatio": 0.5,
+      "topFaceMaxShiftRatio": 0.7,
+      "markSearchRadiusRatio": 0.22,
+      "minViewObliquity": 0.05,
+      "edgeMarginRatio": 0.03,
+      "minSharpness": 15,
+      "denoiseKernelSize": 5,
+      "minAlignmentQuality": 0.5
+    }
+  }
+}

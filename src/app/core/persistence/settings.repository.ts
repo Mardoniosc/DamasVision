@@ -6,6 +6,11 @@ import { AppSetting, SettingsRepository, toPersistenceError } from './persistenc
 export interface SettingValues {
   /** Default player names, prefilled when a game starts. */
   'players.defaultLabels': { readonly white: string; readonly black: string };
+  /** Recognizer choice (G3.1, ADR-042): additive key, no schema change. */
+  'vision.provider': {
+    readonly kind: 'browser' | 'local-service';
+    readonly serviceUrl: string;
+  };
 }
 
 export type SettingKey = keyof SettingValues;

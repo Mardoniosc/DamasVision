@@ -8,3 +8,6 @@ package-lock.json
 # Original specification is kept byte-for-byte as delivered.
 Damas_Vision_Execution_Specification_v1.md
 docs/execution-specification.md
+vision-service/.venv/
+.pytest_cache/
+tests/fixtures/contract/

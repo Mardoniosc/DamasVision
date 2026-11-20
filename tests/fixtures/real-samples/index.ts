@@ -4,6 +4,8 @@ import b from './blue-board-start-b.json';
 import c from './blue-board-start-c.json';
 import d from './blue-board-start-d.json';
 import e from './blue-board-start-e.json';
+import f from './blue-board-start-f.json';
+import midgameA from './blue-board-midgame-a.json';
 
 export interface RegisteredSample {
   readonly name: string;
@@ -16,7 +18,7 @@ export interface RegisteredSample {
   readonly conditions: readonly string[];
 }
 
-/** All five samples: starting position, daylight from a window, oblique camera. */
+/** Daylight from a window, many pieces on the board, oblique camera. */
 const START_DAYLIGHT = ['LUZ_NATURAL', 'MUITAS_PECAS'] as const;
 
 /**
@@ -27,6 +29,11 @@ const START_DAYLIGHT = ['LUZ_NATURAL', 'MUITAS_PECAS'] as const;
  * background model reads it correctly. Sample D's saved calibration is shifted: it raises
  * CALIBRATION_MISALIGNED as saved, and is read correctly either way.
  * Floors are the current results (G3): every sample 32/32, no UNKNOWN.
+ *
+ * Second session (2026-11-20, G3.1), same board and daylight, camera placed closer (the near
+ * corners lower in the image): F is the starting position; midgame-A is a game in progress
+ * (12 against 12) with empty squares where pieces stood before (c7, h6, c3, g3, b2) and
+ * pieces on rows that start empty — the case the G3.1 directive asked about.
  */
 export const REAL_SAMPLES: readonly RegisteredSample[] = [
   {
@@ -60,6 +67,20 @@ export const REAL_SAMPLES: readonly RegisteredSample[] = [
   {
     name: 'blue-board-start-e',
     sample: e as unknown as LabeledSample,
+    minCorrect: 32,
+    minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
+  },
+  {
+    name: 'blue-board-start-f',
+    sample: f as unknown as LabeledSample,
+    minCorrect: 32,
+    minCorrectRefined: 32,
+    conditions: START_DAYLIGHT,
+  },
+  {
+    name: 'blue-board-midgame-a',
+    sample: midgameA as unknown as LabeledSample,
     minCorrect: 32,
     minCorrectRefined: 32,
     conditions: START_DAYLIGHT,

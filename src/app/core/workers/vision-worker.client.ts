@@ -3,6 +3,8 @@ import { CalibrationCorners } from '../../domain/board/calibration';
 import { BoardRecognitionResult } from '../../domain/board/observation';
 import { DEFAULT_VISION_CONFIG, VisionConfig } from '../../vision/vision.config';
 import { CapturedFrame, releaseFrame } from '../frame-capture/frame-capture.models';
+import { RemoteVisionConfigMessage } from './vision-provider';
+import { REMOTE_VISION_TUNING, VisionProviderState } from './vision-provider.state';
 import {
   CalibrationResult,
   isVisionWorkerResponse,
@@ -26,12 +28,42 @@ export interface VisionWorkerPort {
   ): void;
 }
 
+/**
+ * Creates the vision worker for the recognizer in use (G3.1, ADR-042): the OpenCV.js
+ * worker (default) or the remote worker that forwards the same protocol to the optional
+ * local service. The provider is read at creation time.
+ */
 export const VISION_WORKER_FACTORY = new InjectionToken<() => VisionWorkerPort>(
   'VISION_WORKER_FACTORY',
   {
     providedIn: 'root',
-    factory: () => () =>
-      new Worker(new URL('./vision.worker', import.meta.url), { type: 'module' }),
+    factory: () => {
+      const provider = inject(VisionProviderState);
+      const tuning = inject(REMOTE_VISION_TUNING);
+      return () => {
+        const settings = provider.settings();
+        if (settings.kind === 'local-service') {
+          const worker = new Worker(new URL('./remote-vision.worker', import.meta.url), {
+            type: 'module',
+          });
+          const configure: RemoteVisionConfigMessage = {
+            type: 'REMOTE_CONFIG',
+            serviceUrl: settings.serviceUrl,
+            tuning,
+          };
+          worker.postMessage(configure);
+          return {
+            postMessage: (message, transfer = []) => worker.postMessage(message, transfer),
+            addEventListener: (type, listener) => worker.addEventListener(type, listener),
+            removeEventListener: (type, listener) => worker.removeEventListener(type, listener),
+            // DISPOSE was posted just before: let the worker close its service session (it
+            // then closes itself); terminate it in any case after the grace period.
+            terminate: () => setTimeout(() => worker.terminate(), tuning.disposeGraceMs),
+          };
+        }
+        return new Worker(new URL('./vision.worker', import.meta.url), { type: 'module' });
+      };
+    },
   },
 );
 
@@ -62,6 +94,8 @@ export interface RecognitionOutput {
   readonly frame: FrameAssessment | null;
   /** Rectified board image, only for debug requests; the caller must close it. */
   readonly debugImage: ImageBitmap | null;
+  /** Foreground mask (local service, debug requests only); the caller must close it. */
+  readonly foregroundMask: ImageBitmap | null;
 }
 
 export interface RefinedCalibration {
@@ -102,6 +136,7 @@ export class VisionWorkerClient {
   private readonly createWorker = inject(VISION_WORKER_FACTORY);
   private readonly config = inject(VISION_CONFIG);
   private readonly timeouts = inject(VISION_WORKER_TIMEOUTS);
+  private readonly providerState = inject(VisionProviderState);
 
   private readonly stateState = signal<VisionWorkerState>('IDLE');
   private readonly errorState = signal<VisionWorkerError | null>(null);
@@ -211,6 +246,7 @@ export class VisionWorkerClient {
       traces: response.traces ?? [],
       frame: response.frame ?? null,
       debugImage: response.debugImage ?? null,
+      foregroundMask: response.foregroundMask ?? null,
     };
   }
 
@@ -267,6 +303,9 @@ export class VisionWorkerClient {
   }
 
   private async start(): Promise<void> {
+    // The worker kind depends on the stored recognizer choice (G3.1).
+    const pending = this.providerState.pendingLoad();
+    if (pending) await pending;
     this.teardown();
     const worker = this.createWorker();
     worker.addEventListener('message', this.onMessage);
@@ -366,6 +405,7 @@ export class VisionWorkerClient {
       }
       if (data.type === 'RECOGNITION_RESULT') {
         data.debugImage?.close();
+        data.foregroundMask?.close();
       }
       if (data.type === 'ERROR') {
         this.errorState.set(new VisionWorkerError('WORKER_ERROR', data.message, data.code));

@@ -3,25 +3,14 @@ import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../../src/app/app.routes';
 import { GAME_REPOSITORY, toPersistedGame } from '../../src/app/core/persistence/game.repository';
-import {
-  PersistenceError,
-  SettingsRepository,
-} from '../../src/app/core/persistence/persistence.models';
+import { PersistenceError } from '../../src/app/core/persistence/persistence.models';
 import { SETTINGS_REPOSITORY } from '../../src/app/core/persistence/settings.repository';
 import { initialBoard } from '../../src/app/domain/engine/board-state';
 import { createGameSession, endGame } from '../../src/app/domain/game/game-session';
 import { InMemoryGameRepository } from '../fixtures/in-memory-game-repository';
+import { InMemorySettings } from '../fixtures/in-memory-settings';
 
 /** E7-T04/T06/T07 pages: settings, history, home "continue". */
-class InMemorySettings implements SettingsRepository {
-  readonly values = new Map<string, unknown>();
-  async get<T>(key: string): Promise<T | undefined> {
-    return this.values.get(key) as T | undefined;
-  }
-  async set<T>(key: string, value: T): Promise<void> {
-    this.values.set(key, value);
-  }
-}
 
 describe('Persistence pages (E7)', () => {
   let games: InMemoryGameRepository;
@@ -144,5 +133,70 @@ describe('Persistence pages (E7)', () => {
     expect(element.querySelector('[data-testid="settings-status"]')?.textContent?.trim()).toBe(
       'Salvo.',
     );
+  });
+
+  it('settings choose the recognizer and test the local vision service (G3.1)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          JSON.stringify({
+            status: 'ok',
+            contractVersion: 1,
+            serviceVersion: '0.1.0',
+            opencvVersion: '5.0.0',
+          }),
+        ),
+    );
+    const { element, settle } = await open('/settings');
+    const form = element.querySelector('[data-testid="vision-provider-form"]') as HTMLFormElement;
+    expect(element.querySelector('[data-testid="service-url"]')).toBeNull();
+
+    (element.querySelector('[data-testid="provider-service"]') as HTMLInputElement).click();
+    await settle();
+    const url = element.querySelector('[data-testid="service-url"]') as HTMLInputElement;
+    url.value = 'http://192.168.1.20:8765';
+    url.dispatchEvent(new Event('input'));
+    form.dispatchEvent(new Event('submit'));
+    await settle();
+    expect(form.querySelector('[role="alert"]')?.textContent).toContain(
+      'endereço deste computador',
+    );
+    expect(settings.values.has('vision.provider')).toBe(false);
+
+    url.value = 'http://localhost:8765';
+    url.dispatchEvent(new Event('input'));
+    (element.querySelector('[data-testid="test-service"]') as HTMLButtonElement).click();
+    await settle();
+    expect(element.querySelector('[data-testid="probe-result"]')?.textContent).toContain(
+      'OpenCV 5.0.0',
+    );
+    form.dispatchEvent(new Event('submit'));
+    await settle();
+
+    expect(settings.values.get('vision.provider')).toEqual({
+      kind: 'local-service',
+      serviceUrl: 'http://localhost:8765',
+    });
+    expect(element.querySelector('[data-testid="provider-status"]')).not.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("settings choose the vision service of the app's server (Docker, ADR-043)", async () => {
+    vi.stubGlobal('fetch', async () => new Response('{}', { status: 404 }));
+    const { element, settle } = await open('/settings');
+    const form = element.querySelector('[data-testid="vision-provider-form"]') as HTMLFormElement;
+
+    (element.querySelector('[data-testid="provider-server"]') as HTMLInputElement).click();
+    await settle();
+    expect(element.querySelector('[data-testid="service-url"]')).toBeNull();
+    form.dispatchEvent(new Event('submit'));
+    await settle();
+
+    expect(settings.values.get('vision.provider')).toEqual({
+      kind: 'local-service',
+      serviceUrl: 'same-origin',
+    });
+    vi.unstubAllGlobals();
   });
 });

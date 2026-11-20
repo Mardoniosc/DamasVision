@@ -86,6 +86,10 @@ export class RecognitionDebugComponent {
   readonly frame = input<FrameAssessment | null>(null);
   readonly stable = input<readonly StableSquare[]>([]);
   readonly config = input.required<ClassifierConfig>();
+  /** Foreground mask of the same image (local vision service, G3.1); null otherwise. */
+  readonly mask = input<ImageBitmap | null>(null);
+  /** Which recognizer produced the traces (G3.1). */
+  readonly provider = input<'browser' | 'local-service'>('browser');
 
   protected readonly selected = signal<readonly number[]>([]);
   protected readonly legend = (Object.keys(STATE_COLORS) as SquareState[]).map((state) => ({
@@ -97,6 +101,7 @@ export class RecognitionDebugComponent {
 
   private readonly canvas = viewChild<ElementRef<HTMLCanvasElement>>('board');
   private readonly crops = viewChildren<ElementRef<HTMLCanvasElement>>('crop');
+  private readonly maskCrops = viewChildren<ElementRef<HTMLCanvasElement>>('maskCrop');
 
   protected readonly size = computed(() => {
     const image = this.image();
@@ -149,6 +154,7 @@ export class RecognitionDebugComponent {
       context.clearRect(0, 0, width, height);
       if (image) context.drawImage(image, 0, 0);
     });
+    afterRenderEffect(() => this.drawCrops(this.maskCrops(), this.mask()));
     afterRenderEffect(() => {
       const image = this.image();
       const inspected = this.inspected();
@@ -174,6 +180,37 @@ export class RecognitionDebugComponent {
           CROP_PX,
         );
       });
+    });
+  }
+
+  /** Draws each inspected square's region of `source` (the mask) into its crop canvas. */
+  private drawCrops(
+    canvases: readonly ElementRef<HTMLCanvasElement>[],
+    source: ImageBitmap | null,
+  ): void {
+    const inspected = this.inspected();
+    canvases.forEach((ref, i) => {
+      const canvas = ref.nativeElement;
+      const trace = inspected[i]?.trace;
+      const context = canvas.getContext('2d');
+      if (!context || !trace) return;
+      canvas.width = CROP_PX;
+      canvas.height = CROP_PX;
+      context.clearRect(0, 0, CROP_PX, CROP_PX);
+      if (!source) return;
+      const { centerX, centerY, size } = trace.regions;
+      context.imageSmoothingEnabled = false;
+      context.drawImage(
+        source,
+        centerX - size / 2,
+        centerY - size / 2,
+        size,
+        size,
+        0,
+        0,
+        CROP_PX,
+        CROP_PX,
+      );
     });
   }
 

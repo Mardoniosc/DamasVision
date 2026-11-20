@@ -16,7 +16,7 @@ If sources conflict, stop and report the conflict.
 - OpenCV.js MVP vision.
 - Web Worker for non-trivial image processing.
 - IndexedDB local persistence.
-- No backend/cloud inference in MVP.
+- No backend/cloud inference in MVP. Approved exception (ADR-042): the optional local vision service on 127.0.0.1; the browser recognizer stays the default.
 - Pure TypeScript domain engine.
 - Recognition never directly mutates game state.
 - Moves inferred and validated against legal engine moves.
@@ -42,19 +42,21 @@ If sources conflict, stop and report the conflict.
 
 ## Commands
 
-| Purpose                     | Command                                                                          |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| Dev server (localhost:4200) | `npm start`                                                                      |
-| Unit + integration tests    | `npm test` (Vitest via `@angular/build:unit-test`)                               |
-| Engine test suite (G4)      | `npm run test:engine` (domain specs only)                                        |
-| Tests in watch mode         | `npm run test:watch`                                                             |
-| Lint (incl. boundary rules) | `npm run lint`                                                                   |
-| Format / check format       | `npm run format` / `npm run format:check`                                        |
-| Production build            | `npm run build` (output `dist/damas-vision/`)                                    |
-| E2E (Playwright, Chromium)  | `npm run e2e` (starts `ng serve` on port 4300)                                   |
-| Full validation             | `npm run validate` (lint, format, test, build)                                   |
-| E2E on the production build | `npm run e2e:prod` (PWA/offline, profiling → `docs/testing/performance.md`)      |
-| Recognition metrics report  | `npm run eval:recognition` (real samples → `docs/vision/recognition-metrics.md`) |
+| Purpose                     | Command                                                                                                                                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dev server (localhost:4200) | `npm start`                                                                                                                                                                 |
+| Unit + integration tests    | `npm test` (Vitest via `@angular/build:unit-test`)                                                                                                                          |
+| Engine test suite (G4)      | `npm run test:engine` (domain specs only)                                                                                                                                   |
+| Tests in watch mode         | `npm run test:watch`                                                                                                                                                        |
+| Lint (incl. boundary rules) | `npm run lint`                                                                                                                                                              |
+| Format / check format       | `npm run format` / `npm run format:check`                                                                                                                                   |
+| Production build            | `npm run build` (output `dist/damas-vision/`)                                                                                                                               |
+| E2E (Playwright, Chromium)  | `npm run e2e` (starts `ng serve` on port 4300)                                                                                                                              |
+| Full validation             | `npm run validate` (lint, format, test, build)                                                                                                                              |
+| E2E on the production build | `npm run e2e:prod` (PWA/offline, profiling → `docs/testing/performance.md`)                                                                                                 |
+| Local vision service        | `npm run vision:setup` once, then `npm run vision:serve`; tests `npm run vision:test`; metrics `npm run vision:eval`; E2E `npm run e2e:service`; all `npm run validate:all` |
+| Docker (port 8092 only)     | `npm run docker:up` / `npm run docker:down`; E2E against it `npm run e2e:docker` (docs/release/docker.md, ADR-043)                                                          |
+| Recognition metrics report  | `npm run eval:recognition` (real samples → `docs/vision/recognition-metrics.md`)                                                                                            |
 
 First-time E2E setup: `npx playwright install chromium`.
 
@@ -80,6 +82,7 @@ First-time E2E setup: `npx playwright install chromium`.
 - `src/app/core/frame-capture/**` — frame scheduling.
 - `src/app/core/workers/**` — worker protocol, worker entry/handler and client (the only place that creates `Worker`s).
 - `src/app/vision/**` — worker-side pipeline (pure TS + OpenCV). May import only `domain/**`; no Angular, RxJS, Dexie or DOM globals. The **only** place allowed to import `@techstark/opencv-js`.
+- `vision-service/**` — the optional Python service (ADR-042): observation only; no rules, moves or game state. Bound to 127.0.0.1. Not linted by ESLint.
 - `src/app/core/persistence/**` — repositories and DB schema (the only place that touches IndexedDB/Dexie).
 - `src/app/core/app-state/**` — application-level state services.
 - `src/app/features/**` — UI and orchestration (feature stores allowed); no OpenCV, IndexedDB, `Worker` or camera APIs directly.
@@ -98,6 +101,7 @@ If a rule blocks legitimate work, raise it instead of disabling it inline.
 ## Current status
 
 - G0–G6 approved (2026-11-19); G7 and G8 approved (2026-11-20). All epics of the specification are done; the app is release candidate `0.1.0-rc.1`.
+- **G3.1 — Optional local vision service (Python + FastAPI + OpenCV), ADR-042:** the user chose the hybrid option and approved the design on 2026-11-20 (deviation from spec principle 7: local, optional, non-cloud). Implemented: `vision-service/` (see its README), the remote worker and provider in `core/workers`, the recognizer choice in the settings. The browser recognizer stays the default. G3.1 approved (2026-11-20, `docs/architecture/g3.1-report.md`); the reported UNKNOWN on empty squares is still not reproduced on real samples (7 frames), so no threshold was changed. The service must keep parity with the browser recognizer: any classifier change goes to both `src/app/vision/recognition` and `vision-service/src/damas_vision_service/recognition`, then `npm run vision:test` (parity) and `npm run vision:eval`.
 - E3 — Recognition implemented and refactored in G3 (ADR-030–036). G3 approved without further real samples: real kings, empty boards, artificial light and obstruction are still unmeasured (see `docs/vision/recognition.md`, Known limitations). G3 committed (`f13fa4e`).
 - E4 — Engine implemented (`domain/engine/`, rules in `docs/engine/brazilian-checkers-rules.md`, ADR-037). G4 approved, with the draw-rule interpretations confirmed as documented. E4 committed (`4a0b692`).
 - E5 — Stabilization and move inference implemented (`domain/move/`, `docs/vision/move-inference.md`, ADR-038). G5 approved; committed (`2e10692`).

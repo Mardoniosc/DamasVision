@@ -332,3 +332,41 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - **Camera interruption:** the live page shows the camera error with **Reconectar câmera** (restarts camera and recognition). The game continues and moves can be entered by hand.
   - **Release docs:** README (user instructions), `docs/release/release-notes.md`, `docs/testing/release-review.md` (§21/§22 with evidence). Version `0.1.0-rc.1`.
 - **Not done:** the `typescript-eslint` update that would clear 7 moderate dev-only audit findings (needs approval); real-device and physical measurements (the user's sessions).
+
+## ADR-042 — Optional local vision service (G3.1, deviation from spec principle 7)
+
+- **Context:** the G3.1 directive (2026-11-20) asks for Python + OpenCV recognition behind FastAPI. The spec forbids a backend for the MVP (§1 principle 7, §2, prohibitions). The Phase 1 audit (`g3.1-python-vision-audit.md`) reported this conflict and three options. **The user chose option B (hybrid) on 2026-11-20.**
+- **Decision (direction and Phase 2 design approved by the user on 2026-11-20; `g3.1-vision-service-design.md`):**
+  - an optional local service (`vision-service/`, bound to `127.0.0.1`) implements the existing vision-worker protocol and returns the existing `BoardRecognitionResult` / `SquareTrace` contract (v1);
+  - the browser recognizer (OpenCV.js) stays the default and the offline fallback, and the provider is chosen explicitly, never switched silently;
+  - stabilization, inference, game state and the engine stay in the app; the service only observes.
+- **Spec:** `docs/execution-specification.md` is not edited (it must stay identical to the delivered v1). This ADR is the recorded, user-approved deviation: a local, optional, non-cloud backend.
+- **Implementation (G3.1, report in `g3.1-report.md`):**
+  - **Transport:** REST, not WebSocket (OpenAPI, per-request timeouts, no extra dependency). Frames as JPEG 0.9 encoded in `remote-vision.worker.ts`; refinement frames as PNG. The service is reached only on loopback URLs (`normalizeServiceUrl`).
+  - **Thresholds:** sent by the app at session creation; the service requires the complete set and validates it with the app's rules. `classifier.config.ts` stays their single source.
+  - **Parity:** the service ports the G3 pipeline and must give the browser's answers. `tests/integration/vision-service-contract.spec.ts` exports the browser's answers (real samples, default config; synthetic boards to a git-ignored folder); `vision-service/tests/test_parity.py` compares square by square (decisions and explanations exact, features within 0.002, sharpness within 0.1 %).
+  - **Sessions:** one frame per session at a time (`BUSY` = dropped frame), idle expiry 10 min, and at the limit (4) the least recently used idle session is evicted, because a tab that closes cannot always send its DELETE. The remote worker closes its session after DISPOSE and is terminated after a 1 s grace period.
+  - **Failures:** a lost session is recreated and its calibration replayed once; 5 consecutive unanswered frames stop recognition with an explicit pt-BR message; no silent fallback to the browser recognizer.
+  - **E7:** one additive setting key `vision.provider` (no schema change), authorized in Phase 2.
+  - **Not done:** Docker (no benefit for a local Windows workflow), Python linter/type checker (not approved), a feature study (needs real samples of the failing condition).
+- **Versions (exact pins, Python 3.11.9):** fastapi 0.165.0, uvicorn 0.54.0, pydantic 2.14.4, numpy 2.4.6, opencv-python-headless 5.0.0.93 (same major/minor as OpenCV.js 5.0.0), pytest 9.2.0 and httpx 0.28.1 (dev). The full freeze, transitive dependencies included (starlette 1.10.0, anyio 4.16.0, …), is `vision-service/requirements.lock`.
+
+## ADR-043 — Docker deployment on one port (8092)
+
+- **Context:** the user asked (2026-11-20) to run everything in containers with only port 8092 available. ADR-042 had left Docker out for the local Windows workflow.
+- **Decision:**
+  - `docker-compose.yml` runs two containers: `web` (nginx serving the production build) and `vision` (the vision service).
+  - Only `web` publishes a port: `127.0.0.1:8092`, loopback only, so frames stay on the computer and the page is a secure context for the camera.
+  - nginx forwards `/v1/` to `vision:8765` on the compose network. App and service share one origin, so no CORS is needed.
+  - The service listens on `0.0.0.0` inside its container (`DAMAS_VISION_HOST`, container use only). It runs non-root with a read-only file system.
+  - Service calls carry `ngsw-bypass`. On the same origin the app's service worker otherwise held them while prefetching the app; this was found by the Docker E2E.
+  - The web image's build context is an allow list (`.dockerignore`). It must include `.postcssrc.json`: without it Tailwind is not processed and the layout collapses, which the Docker E2E also caught.
+- **Versions:** `node:26.13.1-alpine` (build stage), `nginx:1.30.7-alpine`, `python:3.11.9-slim-bookworm`. Runtime Python pins come from `requirements.txt`, constrained by `requirements.lock`.
+- **Verification:** `npm run e2e:docker` runs the service E2E specs against the running containers.
+- **Update (same day): the service of the app's own server.**
+  - In the Docker setup the service is on the app's origin. The default address `http://127.0.0.1:8765` (the `vision:serve` case) did not reach it, and the loopback-only rule refused the server's address. The user hit this when testing the Docker setup.
+  - The setting `vision.provider.serviceUrl` may now be `same-origin`. It resolves to the page's (and the remote worker's) origin; frames then go only to the server that served the app. Absolute addresses stay loopback-only.
+  - The image serves `/deployment.json` (`local-service`, `same-origin`). Precedence: a choice saved on the device, then the deployment default, then the browser recognizer. A fresh browser therefore uses the server's service with no configuration.
+  - The settings offer three options: the browser, the vision service of this server (marked as recommended when the deployment says so), and a service at another address on this computer. Failure messages name the container instead of `npm run vision:serve`.
+  - The published address is `${DAMAS_VISION_BIND:-127.0.0.1}:8092`. Other devices need HTTPS in front for the camera (secure context).
+  - Verified by `tests/e2e-service/automatic.docker.spec.ts`.

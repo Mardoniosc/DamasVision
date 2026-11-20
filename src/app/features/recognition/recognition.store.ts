@@ -8,7 +8,16 @@ import {
   PersistenceError,
   toPersistenceError,
 } from '../../core/persistence/persistence.models';
-import { VISION_CONFIG, VisionWorkerClient } from '../../core/workers/vision-worker.client';
+import { visionFailureMessage } from '../../core/workers/vision-failure';
+import {
+  REMOTE_VISION_TUNING,
+  VisionProviderState,
+} from '../../core/workers/vision-provider.state';
+import {
+  VISION_CONFIG,
+  VisionWorkerClient,
+  VisionWorkerError,
+} from '../../core/workers/vision-worker.client';
 import { releaseFrame } from '../../core/frame-capture/frame-capture.models';
 import { bitmapToPngDataUrl } from '../../shared/utilities/file-export';
 import {
@@ -73,6 +82,10 @@ export class RecognitionStore {
   private readonly worker = inject(VisionWorkerClient);
   private readonly repository = inject(CALIBRATION_REPOSITORY);
   private readonly visionConfig = inject(VISION_CONFIG);
+  private readonly provider = inject(VisionProviderState);
+  private readonly remoteTuning = inject(REMOTE_VISION_TUNING);
+  /** Frames in a row the local vision service did not answer (G3.1). */
+  private serviceFailures = 0;
 
   private readonly phaseState = signal<RecognitionPhase>('LOADING');
   private readonly profileState = signal<PersistedCalibration | null>(null);
@@ -84,6 +97,7 @@ export class RecognitionStore {
   private readonly frameAssessmentState = signal<FrameAssessment | null>(null);
   private readonly debugState = signal(false);
   private readonly debugImageState = signal<ImageBitmap | null>(null);
+  private readonly debugMaskState = signal<ImageBitmap | null>(null);
   private readonly stableSquaresState = signal<readonly StableSquare[]>([]);
   private readonly stabilizer = new ObservationStabilizer({
     windowSize: this.visionConfig.stabilityWindowSize,
@@ -116,6 +130,10 @@ export class RecognitionStore {
   /** Diagnostic mode: the worker also returns the rectified image. */
   readonly debug = this.debugState.asReadonly();
   readonly debugImage = this.debugImageState.asReadonly();
+  /** Foreground mask of the rectified image (local service only, G3.1). */
+  readonly debugMask = this.debugMaskState.asReadonly();
+  /** Which recognizer answers (G3.1): shown in the diagnostic panel. */
+  readonly providerKind = computed(() => this.provider.settings().kind);
   /** Temporal consolidation per square (votes, decision), for the shown reading. */
   readonly stableSquares = this.stableSquaresState.asReadonly();
 
@@ -199,6 +217,7 @@ export class RecognitionStore {
     inject(DestroyRef).onDestroy(() => {
       this.capture.stop();
       this.replaceDebugImage(null);
+      this.replaceDebugMask(null);
     });
   }
 
@@ -229,10 +248,17 @@ export class RecognitionStore {
     }
     try {
       await this.worker.init();
-    } catch {
-      this.fail('O processamento de imagem não pôde ser iniciado. Recarregue a página.');
+    } catch (error) {
+      this.fail(
+        visionFailureMessage(
+          error,
+          this.provider.settings(),
+          'O processamento de imagem não pôde ser iniciado. Recarregue a página.',
+        ),
+      );
       return;
     }
+    this.serviceFailures = 0;
     this.phaseState.set('RECOGNIZING');
     await this.capture.start((frame) => this.processFrame(frame));
   }
@@ -286,7 +312,16 @@ export class RecognitionStore {
   /** Turns the diagnostic view on or off (rectified image + per-square traces). */
   setDebug(enabled: boolean): void {
     this.debugState.set(enabled);
-    if (!enabled) this.replaceDebugImage(null);
+    if (!enabled) {
+      this.replaceDebugImage(null);
+      this.replaceDebugMask(null);
+    }
+  }
+
+  private replaceDebugMask(mask: ImageBitmap | null): void {
+    const previous = this.debugMaskState();
+    if (previous && previous !== mask) previous.close();
+    this.debugMaskState.set(mask);
   }
 
   private replaceDebugImage(image: ImageBitmap | null): void {
@@ -433,7 +468,7 @@ export class RecognitionStore {
       this.calibratedFor = size;
       this.frameSizeState.set(size);
     }
-    const output = await this.worker.process(frame, { debug: this.debugState() });
+    const output = await this.processWithService(frame);
     if (this.phaseState() === 'RECOGNIZING') {
       // The board shows the temporally consolidated reading, never a single frame.
       this.stabilizer.push(output.result, output.frame);
@@ -442,8 +477,36 @@ export class RecognitionStore {
       this.latestTracesState.set(output.traces);
       this.frameAssessmentState.set(output.frame);
       this.replaceDebugImage(output.debugImage);
+      this.replaceDebugMask(output.foregroundMask);
     } else {
       output.debugImage?.close();
+      output.foregroundMask?.close();
+    }
+  }
+
+  /**
+   * Sends the frame to the vision worker. With the local service (G3.1), isolated failures
+   * are dropped frames; after `maxConsecutiveFailures` in a row recognition stops with an
+   * explicit message instead of silently showing an old reading.
+   */
+  private async processWithService(frame: CapturedFrame) {
+    try {
+      const output = await this.worker.process(frame, { debug: this.debugState() });
+      this.serviceFailures = 0;
+      return output;
+    } catch (error) {
+      if (
+        this.provider.usesService() &&
+        error instanceof VisionWorkerError &&
+        (error.workerCode === 'SERVICE_UNAVAILABLE' || error.failure === 'TIMEOUT')
+      ) {
+        this.serviceFailures++;
+        if (this.serviceFailures >= this.remoteTuning.maxConsecutiveFailures) {
+          this.capture.stop();
+          this.fail(visionFailureMessage(error, this.provider.settings(), ''));
+        }
+      }
+      throw error;
     }
   }
 

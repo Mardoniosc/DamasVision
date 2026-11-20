@@ -120,6 +120,8 @@ Synthetic scenarios guard known failure modes; only real samples count as eviden
 | G3, as saved                 |     160 |       0 |                0 | 100 % / 100 % |   100 % |   100 % |
 | G3, after automatic adjust   |     160 |       0 |                0 | 100 % / 100 % |   100 % |   100 % |
 
+**Second session (2026-11-20, G3.1):** two more frames of the same board in daylight, camera placed closer: the starting position and a game in progress, with empty squares where pieces stood before (c7, h6, c3, g3, b2). Both read 32/32 by both recognizers, as exported and replayed. Over the 7 real frames (224 squares): 224 correct, 0 UNKNOWN, 0 confident errors; the 56 empty squares all have 0 % foreground (empty ≤ 15 %), confidence 1, 4 of 4 board-like corners and a background at ≥ 0.51 of the local light (minimum 0.22). Current figures: [recognition-metrics.md](recognition-metrics.md).
+
 ¹ What the app showed when each sample was exported: the build before the baseline commit, with 4 white men read as kings (the false kings fixed before `d8cc640`). It was a single frame, as saved.
 
 The real samples contain no kings, so king accuracy on real pieces is **not measured**.
@@ -143,7 +145,7 @@ The real samples contain no kings, so king accuracy on real pieces is **not meas
 - **Kings must carry a colored mark** (spec §7). Stacked or achromatic kings read as men; the user corrects them, and the engine tracks promotions (E4/E6).
 - **The mark direction assumes the camera faces the board** across one side or a corner; the calibration provides it. Top-down boards search the center only.
 - **Pieces whose luminance is close to the dark squares** (for example red on brown) come out `UNKNOWN`; tune `blackMaxContrastRatio` for such sets.
-- **Thresholds are validated on one real set** (5 frames, one board, one lighting). Artificial light, shadows, kings, obstruction and other angles need real samples (the condition tags in the export cover these) and the physical test matrix (E8-T02).
+- **Thresholds are validated on one real set** (7 frames, one board, daylight, two camera placements). Artificial light, shadows, kings, obstruction and other angles need real samples (the condition tags in the export cover these) and the physical test matrix (E8-T02).
 
 ## History
 

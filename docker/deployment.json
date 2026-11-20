@@ -1,0 +1,3 @@
+{
+  "visionProvider": { "kind": "local-service", "serviceUrl": "same-origin" }
+}
