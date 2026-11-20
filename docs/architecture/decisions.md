@@ -332,3 +332,21 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - **Camera interruption:** the live page shows the camera error with **Reconectar câmera** (restarts camera and recognition). The game continues and moves can be entered by hand.
   - **Release docs:** README (user instructions), `docs/release/release-notes.md`, `docs/testing/release-review.md` (§21/§22 with evidence). Version `0.1.0-rc.1`.
 - **Not done:** the `typescript-eslint` update that would clear 7 moderate dev-only audit findings (needs approval); real-device and physical measurements (the user's sessions).
+
+## ADR-042 — Optional local vision service (G3.1, deviation from spec principle 7)
+
+- **Context:** the G3.1 directive (2026-11-20) asks for Python + OpenCV recognition behind FastAPI. The spec forbids a backend for the MVP (§1 principle 7, §2, prohibitions). The Phase 1 audit (`g3.1-python-vision-audit.md`) reported this conflict and three options. **The user chose option B (hybrid) on 2026-11-20.**
+- **Decision (direction and Phase 2 design approved by the user on 2026-11-20; `g3.1-vision-service-design.md`):**
+  - an optional local service (`vision-service/`, bound to `127.0.0.1`) implements the existing vision-worker protocol and returns the existing `BoardRecognitionResult` / `SquareTrace` contract (v1);
+  - the browser recognizer (OpenCV.js) stays the default and the offline fallback, and the provider is chosen explicitly, never switched silently;
+  - stabilization, inference, game state and the engine stay in the app; the service only observes.
+- **Spec:** `docs/execution-specification.md` is not edited (it must stay identical to the delivered v1). This ADR is the recorded, user-approved deviation: a local, optional, non-cloud backend.
+- **Implementation (G3.1, report in `g3.1-report.md`):**
+  - **Transport:** REST, not WebSocket (OpenAPI, per-request timeouts, no extra dependency). Frames as JPEG 0.9 encoded in `remote-vision.worker.ts`; refinement frames as PNG. The service is reached only on loopback URLs (`normalizeServiceUrl`).
+  - **Thresholds:** sent by the app at session creation; the service requires the complete set and validates it with the app's rules. `classifier.config.ts` stays their single source.
+  - **Parity:** the service ports the G3 pipeline and must give the browser's answers. `tests/integration/vision-service-contract.spec.ts` exports the browser's answers (real samples, default config; synthetic boards to a git-ignored folder); `vision-service/tests/test_parity.py` compares square by square (decisions and explanations exact, features within 0.002, sharpness within 0.1 %).
+  - **Sessions:** one frame per session at a time (`BUSY` = dropped frame), idle expiry 10 min, and at the limit (4) the least recently used idle session is evicted, because a tab that closes cannot always send its DELETE. The remote worker closes its session after DISPOSE and is terminated after a 1 s grace period.
+  - **Failures:** a lost session is recreated and its calibration replayed once; 5 consecutive unanswered frames stop recognition with an explicit pt-BR message; no silent fallback to the browser recognizer.
+  - **E7:** one additive setting key `vision.provider` (no schema change), authorized in Phase 2.
+  - **Not done:** Docker (no benefit for a local Windows workflow), Python linter/type checker (not approved), a feature study (needs real samples of the failing condition).
+- **Versions (exact pins, Python 3.11.9):** fastapi 0.165.0, uvicorn 0.54.0, pydantic 2.14.4, numpy 2.4.6, opencv-python-headless 5.0.0.93 (same major/minor as OpenCV.js 5.0.0), pytest 9.2.0 and httpx 0.28.1 (dev). The full freeze, transitive dependencies included (starlette 1.10.0, anyio 4.16.0, …), is `vision-service/requirements.lock`.

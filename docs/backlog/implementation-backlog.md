@@ -114,3 +114,17 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | **G8** | Release candidate with measured results | APPROVED (2026-11-20)                            |
 
 All epics of the specification (§17) are implemented and every gate is approved. G8 approves release candidate 0.1.0-rc.1 on the automated measurements; the physical test results (E8-T02) remain to be recorded, and they decide the final release.
+
+## G3.1 — Local vision service (ADR-042)
+
+| Phase    | Description                                                      | Status                                        |
+| -------- | ---------------------------------------------------------------- | --------------------------------------------- |
+| 1        | Audit (`docs/architecture/g3.1-python-vision-audit.md`)          | DONE — option B chosen                        |
+| 2        | Architecture (`docs/architecture/g3.1-vision-service-design.md`) | APPROVED (2026-11-20)                         |
+| 3        | Python foundation (FastAPI, config, logs, tests)                 | DONE                                          |
+| 4        | Geometry (calibration, warp, grid, ROIs)                         | DONE                                          |
+| 5        | Recognition (quality, features, stages, confidence, diagnostics) | DONE (port; feature study needs real samples) |
+| 6        | Angular integration (remote worker, provider, UI)                | DONE                                          |
+| 7        | Stabilization (page side, unchanged unless evidence)             | DONE (unchanged)                              |
+| 8        | Dataset, metrics, parity, performance                            | DONE                                          |
+| **G3.1** | Gate report (`docs/architecture/g3.1-report.md`)                 | APPROVED (2026-11-20)                         |

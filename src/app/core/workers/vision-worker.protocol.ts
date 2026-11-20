@@ -56,7 +56,9 @@ export type VisionWorkerErrorCode =
   | 'CALIBRATION_FAILED'
   | 'RECTIFY_FAILED'
   | 'RECOGNITION_FAILED'
-  | 'REFINE_FAILED';
+  | 'REFINE_FAILED'
+  /** Local vision service only (G3.1): not reachable, or it did not answer in time. */
+  | 'SERVICE_UNAVAILABLE';
 
 export type VisionWorkerResponse =
   | { readonly type: 'READY' }
@@ -80,6 +82,11 @@ export type VisionWorkerResponse =
       readonly frame?: FrameAssessment;
       /** Extension (ADR-030): rectified, smoothed board image (debug requests only). */
       readonly debugImage?: ImageBitmap;
+      /**
+       * Extension (G3.1, local service only): per-pixel foreground (white) and
+       * shadow/glare (gray) of the piece disks, same size as `debugImage`.
+       */
+      readonly foregroundMask?: ImageBitmap;
     }
   | {
       readonly type: 'ERROR';
@@ -227,7 +234,8 @@ export function isVisionWorkerResponse(value: unknown): value is VisionWorkerRes
         isBoardRecognitionResult(value['result']) &&
         (value['traces'] === undefined || isSquareTraces(value['traces'])) &&
         (value['frame'] === undefined || isFrameAssessment(value['frame'])) &&
-        (value['debugImage'] === undefined || isBitmapLike(value['debugImage']))
+        (value['debugImage'] === undefined || isBitmapLike(value['debugImage'])) &&
+        (value['foregroundMask'] === undefined || isBitmapLike(value['foregroundMask']))
       );
     case 'ERROR':
       return typeof value['code'] === 'string' && typeof value['message'] === 'string';

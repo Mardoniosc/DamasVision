@@ -8,8 +8,8 @@ Targets: EMPTY precision ≥ 98%, WHITE/BLACK recall ≥ 95%, zero confident err
 
 Evidence. Labeled frames exported from the app (tests/fixtures/real-samples), replayed through the real worker pipeline (OpenCV.js, single frame, no temporal stabilization).
 
-- Images: 5 · playable squares: 160
-- Correct: 160 (100.0%) · UNKNOWN: 0 (0.0%) · **confident errors: 0**
+- Images: 7 · playable squares: 224
+- Correct: 224 (100.0%) · UNKNOWN: 0 (0.0%) · **confident errors: 0**
 - Occupancy: false positives (empty → piece) 0 · false negatives (piece → empty) 0 · UNKNOWN on empty 0 · UNKNOWN on occupied 0
 - Color errors: 0 · type (man ↔ king) errors: 0
 
@@ -17,9 +17,9 @@ Evidence. Labeled frames exported from the app (tests/fixtures/real-samples), re
 
 | Class      | Support | Predicted | Correct | UNKNOWN | Precision | Recall |
 | ---------- | ------: | --------: | ------: | ------: | --------: | -----: |
-| EMPTY      |      40 |        40 |      40 |       0 |    100.0% | 100.0% |
-| WHITE      |      60 |        60 |      60 |       0 |    100.0% | 100.0% |
-| BLACK      |      60 |        60 |      60 |       0 |    100.0% | 100.0% |
+| EMPTY      |      56 |        56 |      56 |       0 |    100.0% | 100.0% |
+| WHITE      |      84 |        84 |      84 |       0 |    100.0% | 100.0% |
+| BLACK      |      84 |        84 |      84 |       0 |    100.0% | 100.0% |
 | WHITE_KING |       0 |         0 |       0 |       0 |         — |      — |
 | BLACK_KING |       0 |         0 |       0 |       0 |         — |      — |
 
@@ -27,35 +27,37 @@ Evidence. Labeled frames exported from the app (tests/fixtures/real-samples), re
 
 | Label \ reading | EMPTY | WHITE | BLACK | WHITE_KING | BLACK_KING | UNKNOWN |
 | --------------- | ----: | ----: | ----: | ---------: | ---------: | ------: |
-| EMPTY           |    40 |     0 |     0 |          0 |          0 |       0 |
-| WHITE           |     0 |    60 |     0 |          0 |          0 |       0 |
-| BLACK           |     0 |     0 |    60 |          0 |          0 |       0 |
+| EMPTY           |    56 |     0 |     0 |          0 |          0 |       0 |
+| WHITE           |     0 |    84 |     0 |          0 |          0 |       0 |
+| BLACK           |     0 |     0 |    84 |          0 |          0 |       0 |
 | WHITE_KING      |     0 |     0 |     0 |          0 |          0 |       0 |
 | BLACK_KING      |     0 |     0 |     0 |          0 |          0 |       0 |
 
 ### Per image
 
-| Image              | Conditions                | Correct | UNKNOWN | Wrong | Errors |
-| ------------------ | ------------------------- | ------: | ------: | ----: | ------ |
-| blue-board-start-a | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-b | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-c | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-d | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-e | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| Image                | Conditions                | Correct | UNKNOWN | Wrong | Errors |
+| -------------------- | ------------------------- | ------: | ------: | ----: | ------ |
+| blue-board-start-a   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-b   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-c   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-d   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-e   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-f   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-midgame-a | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
 
 ### Per condition
 
 | Condition    | Squares | Accuracy | UNKNOWN | Wrong |
 | ------------ | ------: | -------: | ------: | ----: |
-| LUZ_NATURAL  |     160 |   100.0% |    0.0% |     0 |
-| MUITAS_PECAS |     160 |   100.0% |    0.0% |     0 |
+| LUZ_NATURAL  |     224 |   100.0% |    0.0% |     0 |
+| MUITAS_PECAS |     224 |   100.0% |    0.0% |     0 |
 
 ## Real samples — after the automatic corner adjustment
 
 Same frames, after REFINE_CALIBRATION (ADR-027).
 
-- Images: 5 · playable squares: 160
-- Correct: 160 (100.0%) · UNKNOWN: 0 (0.0%) · **confident errors: 0**
+- Images: 7 · playable squares: 224
+- Correct: 224 (100.0%) · UNKNOWN: 0 (0.0%) · **confident errors: 0**
 - Occupancy: false positives (empty → piece) 0 · false negatives (piece → empty) 0 · UNKNOWN on empty 0 · UNKNOWN on occupied 0
 - Color errors: 0 · type (man ↔ king) errors: 0
 
@@ -63,9 +65,9 @@ Same frames, after REFINE_CALIBRATION (ADR-027).
 
 | Class      | Support | Predicted | Correct | UNKNOWN | Precision | Recall |
 | ---------- | ------: | --------: | ------: | ------: | --------: | -----: |
-| EMPTY      |      40 |        40 |      40 |       0 |    100.0% | 100.0% |
-| WHITE      |      60 |        60 |      60 |       0 |    100.0% | 100.0% |
-| BLACK      |      60 |        60 |      60 |       0 |    100.0% | 100.0% |
+| EMPTY      |      56 |        56 |      56 |       0 |    100.0% | 100.0% |
+| WHITE      |      84 |        84 |      84 |       0 |    100.0% | 100.0% |
+| BLACK      |      84 |        84 |      84 |       0 |    100.0% | 100.0% |
 | WHITE_KING |       0 |         0 |       0 |       0 |         — |      — |
 | BLACK_KING |       0 |         0 |       0 |       0 |         — |      — |
 
@@ -73,28 +75,30 @@ Same frames, after REFINE_CALIBRATION (ADR-027).
 
 | Label \ reading | EMPTY | WHITE | BLACK | WHITE_KING | BLACK_KING | UNKNOWN |
 | --------------- | ----: | ----: | ----: | ---------: | ---------: | ------: |
-| EMPTY           |    40 |     0 |     0 |          0 |          0 |       0 |
-| WHITE           |     0 |    60 |     0 |          0 |          0 |       0 |
-| BLACK           |     0 |     0 |    60 |          0 |          0 |       0 |
+| EMPTY           |    56 |     0 |     0 |          0 |          0 |       0 |
+| WHITE           |     0 |    84 |     0 |          0 |          0 |       0 |
+| BLACK           |     0 |     0 |    84 |          0 |          0 |       0 |
 | WHITE_KING      |     0 |     0 |     0 |          0 |          0 |       0 |
 | BLACK_KING      |     0 |     0 |     0 |          0 |          0 |       0 |
 
 ### Per image
 
-| Image              | Conditions                | Correct | UNKNOWN | Wrong | Errors |
-| ------------------ | ------------------------- | ------: | ------: | ----: | ------ |
-| blue-board-start-a | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-b | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-c | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-d | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
-| blue-board-start-e | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| Image                | Conditions                | Correct | UNKNOWN | Wrong | Errors |
+| -------------------- | ------------------------- | ------: | ------: | ----: | ------ |
+| blue-board-start-a   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-b   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-c   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-d   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-e   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-start-f   | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
+| blue-board-midgame-a | LUZ_NATURAL, MUITAS_PECAS |   32/32 |       0 |     0 | —      |
 
 ### Per condition
 
 | Condition    | Squares | Accuracy | UNKNOWN | Wrong |
 | ------------ | ------: | -------: | ------: | ----: |
-| LUZ_NATURAL  |     160 |   100.0% |    0.0% |     0 |
-| MUITAS_PECAS |     160 |   100.0% |    0.0% |     0 |
+| LUZ_NATURAL  |     224 |   100.0% |    0.0% |     0 |
+| MUITAS_PECAS |     224 |   100.0% |    0.0% |     0 |
 
 ## Synthetic regression scenarios (not evidence)
 

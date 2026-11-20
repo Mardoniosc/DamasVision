@@ -6,11 +6,11 @@ Measured 2026-11-20 on the production build, in Playwright Chromium (desktop), w
 
 | Measure                                   |                  Value | Target / note                                                         |
 | ----------------------------------------- | ---------------------: | --------------------------------------------------------------------- |
-| Initial bundle (main + styles)            |                 278 kB | budget 500 kB warning / 1 MB error                                    |
+| Initial bundle (main + styles)            |                 380 kB | budget 500 kB warning / 1 MB error                                    |
 | OpenCV.js worker chunk                    |                16.7 MB | loaded only by the vision worker; cached by the service worker        |
 | All JS + CSS                              |                17.4 MB |                                                                       |
-| First contentful paint (home)             |           not reported | headless Chromium may not report paint timing                         |
-| DOMContentLoaded / load (home)            |             58 / 59 ms |                                                                       |
+| First contentful paint (home)             |                 128 ms | headless Chromium may not report paint timing                         |
+| DOMContentLoaded / load (home)            |             82 / 84 ms |                                                                       |
 | Recognition page → first reliable reading |                  4.0 s | includes camera start, worker and OpenCV.js load, ≥ 3 agreeing frames |
 | Frames analysed per second                |                    5.0 | 5 (one every 200 ms); lower means the worker is the bottleneck        |
 | Main-thread heap, live game, after GC     | 5.5 → 5.7 MB over 30 s | no growth expected (E8-T04)                                           |

@@ -51,3 +51,11 @@ Thumbs.db
 
 # Generated E2E fixtures
 /tests/e2e/.generated/
+
+# Python vision service (G3.1)
+/vision-service/.venv/
+__pycache__/
+.pytest_cache/
+
+# Generated vision-service parity boards (G3.1)
+/tests/fixtures/contract/.generated/

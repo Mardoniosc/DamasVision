@@ -8,7 +8,7 @@ Principles:
 
 - Vision observes; the engine decides.
 - Uncertainty is explicit (`UNKNOWN`, confirmation requests); a false move is worse than a question.
-- No backend, no cloud inference, no image upload: everything runs in the browser, and only positions and moves are stored.
+- No cloud, no image upload: everything runs in the browser, and only positions and moves are stored. An optional Python recognizer can run on the same computer (below); frames never leave it.
 
 ## Using the app
 
@@ -76,6 +76,10 @@ node scripts/serve-dist.mjs 4400
 ```
 
 Camera access requires a secure context: deploy behind HTTPS (any static host with SPA fallback to `index.html`).
+
+## Optional local vision service (Python)
+
+`vision-service/` is an alternative recognizer: Python + FastAPI + OpenCV on `127.0.0.1`, speaking the same protocol and giving the same answers as the browser recognizer (parity tests). Set it up with `npm run vision:setup`, run it with `npm run vision:serve`, and choose it in **Configurações → Reconhecimento**. Details: [vision-service/README.md](vision-service/README.md), [ADR-042](docs/architecture/decisions.md), [G3.1 report](docs/architecture/g3.1-report.md).
 
 ## Project layout
 

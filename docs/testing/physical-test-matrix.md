@@ -66,3 +66,4 @@ _To be filled in during the physical sessions._
 ### Already measured
 
 - **2026-11-19, blue/cream board, tall grooved pieces, oblique camera, daylight:** 5 real frames of the starting position, 160/160 squares correct, 0 confident errors (`docs/vision/recognition-metrics.md`). No game was recorded yet, and no kings, artificial light, occlusion or interruption were measured.
+- **2026-11-20, same board and pieces, daylight, camera placed closer:** 2 real frames (the starting position and a game in progress, 12 against 12), 64/64 squares correct with both recognizers (browser and local service), 0 UNKNOWN, 0 confident errors. Still no kings, artificial light, occlusion or recorded game.

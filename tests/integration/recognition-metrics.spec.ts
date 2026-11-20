@@ -12,13 +12,8 @@ import { DEFAULT_VISION_CONFIG } from '../../src/app/vision/vision.config';
 import { environmentVariable, writeRepositoryFile } from '../fixtures/node-io';
 import { REAL_SAMPLES } from '../fixtures/real-samples';
 import { evaluateSample } from '../fixtures/sample-evaluation';
-import {
-  midgamePosition,
-  REAL_SET_BLUE_BOARD,
-  RenderOptions,
-  renderNormalizedBoard,
-  startingPosition,
-} from '../fixtures/synthetic-board';
+import { renderNormalizedBoard } from '../fixtures/synthetic-board';
+import { SYNTHETIC_SCENARIOS } from '../fixtures/synthetic-scenarios';
 
 /**
  * G3 metrics (docs/vision/recognition-metrics.md). Real labeled samples are the evidence:
@@ -32,29 +27,6 @@ const REPORT_PATH = 'docs/vision/recognition-metrics.md';
 
 /** G3 targets (directive §12). */
 const TARGETS = { emptyPrecision: 0.98, colorRecall: 0.95 };
-
-const SYNTHETIC: readonly { name: string; position: () => Piece[]; options: RenderOptions }[] = [
-  { name: 'wood, ideal, start', position: startingPosition, options: {} },
-  { name: 'wood, ideal, mid-game + kings', position: midgamePosition, options: {} },
-  { name: 'wood, dim', position: midgamePosition, options: { brightness: 0.55 } },
-  { name: 'wood, bright', position: midgamePosition, options: { brightness: 1.2 } },
-  { name: 'wood, gradient', position: startingPosition, options: { gradient: [0.6, 1.15] } },
-  { name: 'wood, noise', position: midgamePosition, options: { noise: 10, seed: 3 } },
-  { name: 'wood, off-center', position: startingPosition, options: { jitter: 0.08, seed: 5 } },
-  {
-    name: 'wood, local shadow',
-    position: midgamePosition,
-    options: { shadow: { x: 300, y: 420, radius: 220, factor: 0.6 } },
-  },
-  { name: 'wood, tall + kings', position: midgamePosition, options: { pieceHeight: 0.3 } },
-  { name: 'blue model, start', position: startingPosition, options: REAL_SET_BLUE_BOARD },
-  { name: 'blue model, kings', position: midgamePosition, options: REAL_SET_BLUE_BOARD },
-  {
-    name: 'blue model, kings, dim + noise',
-    position: midgamePosition,
-    options: { ...REAL_SET_BLUE_BOARD, brightness: 0.6, noise: 8 },
-  },
-];
 
 function classMetric(metrics: RecognitionMetrics, label: Piece) {
   const found = metrics.classes.find((c) => c.label === label);
@@ -90,7 +62,7 @@ describe('G3 recognition metrics', { timeout: 120_000 }, () => {
 
     const config = resolveClassifierConfig(DEFAULT_VISION_CONFIG);
     synthetic = evaluateRecognition(
-      SYNTHETIC.map(({ name, position, options }) => {
+      SYNTHETIC_SCENARIOS.map(({ name, position, options }) => {
         const labels = position();
         const { result } = recognizeBoard(renderNormalizedBoard(labels, options), config, {
           timestamp: 0,
