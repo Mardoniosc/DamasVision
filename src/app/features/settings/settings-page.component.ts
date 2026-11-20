@@ -1,7 +1,10 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, inject, linkedSignal, OnInit, signal } from '@angular/core';
 import { ServiceProbe, VisionProviderService } from '../../core/app-state/vision-provider.service';
 import { toPersistenceError } from '../../core/persistence/persistence.models';
-import { VisionProviderKind } from '../../core/workers/vision-provider';
+import { DEFAULT_SERVICE_URL, SAME_ORIGIN } from '../../core/workers/vision-provider';
+
+/** Recognizer options of the form: the browser, the app's server, or another address. */
+type ProviderMode = 'browser' | 'server' | 'url';
 import {
   getSetting,
   SETTINGS_REPOSITORY,
@@ -78,8 +81,8 @@ type SaveState = 'IDLE' | 'SAVED' | 'ERROR';
         <h2 id="vision-heading" class="font-semibold">Reconhecimento</h2>
         <p class="text-sm text-stone-600">
           Quem lê o tabuleiro. O navegador funciona em qualquer dispositivo, também sem internet. O
-          serviço local (Python + OpenCV) é opcional e roda neste computador; as imagens nunca saem
-          dele.
+          serviço de visão (Python + OpenCV) é opcional: no servidor que publica o app (Docker) ou
+          neste computador. As imagens não vão para nenhum outro lugar.
         </p>
         <fieldset class="space-y-2 text-sm">
           <legend class="sr-only">Reconhecedor</legend>
@@ -89,11 +92,31 @@ type SaveState = 'IDLE' | 'SAVED' | 'ERROR';
               name="provider"
               value="browser"
               class="mt-1"
-              [checked]="kind() === 'browser'"
-              (change)="setKind('browser')"
+              [checked]="mode() === 'browser'"
+              (change)="setMode('browser')"
               data-testid="provider-browser"
             />
-            <span>Navegador (padrão)</span>
+            <span>Navegador</span>
+          </label>
+          <label class="flex items-start gap-2">
+            <input
+              type="radio"
+              name="provider"
+              value="server"
+              class="mt-1"
+              [checked]="mode() === 'server'"
+              (change)="setMode('server')"
+              data-testid="provider-server"
+            />
+            <span>
+              Serviço de visão deste servidor
+              @if (serverRecommended()) {
+                <span class="text-brand-700">(recomendado por este servidor)</span>
+              }
+              <span class="block text-xs text-stone-600"
+                >O mesmo endereço do app ({{ origin }}), como na instalação com Docker.</span
+              >
+            </span>
           </label>
           <label class="flex items-start gap-2">
             <input
@@ -101,14 +124,14 @@ type SaveState = 'IDLE' | 'SAVED' | 'ERROR';
               name="provider"
               value="local-service"
               class="mt-1"
-              [checked]="kind() === 'local-service'"
-              (change)="setKind('local-service')"
+              [checked]="mode() === 'url'"
+              (change)="setMode('url')"
               data-testid="provider-service"
             />
-            <span>Serviço local de visão (Python)</span>
+            <span>Serviço de visão neste computador (outro endereço)</span>
           </label>
         </fieldset>
-        @if (kind() === 'local-service') {
+        @if (mode() === 'url') {
           <label class="block text-sm">
             <span class="text-stone-600">Endereço do serviço</span>
             <input
@@ -130,7 +153,7 @@ type SaveState = 'IDLE' | 'SAVED' | 'ERROR';
           >
             Salvar
           </button>
-          @if (kind() === 'local-service') {
+          @if (mode() !== 'browser') {
             <button
               type="button"
               class="rounded-md border border-stone-300 px-3 py-2 text-sm hover:bg-stone-50"
@@ -174,8 +197,16 @@ export class SettingsPageComponent implements OnInit {
   protected readonly state = signal<SaveState>('IDLE');
   protected readonly error = signal<string | null>(null);
 
-  protected readonly kind = signal<VisionProviderKind>(this.vision.current().kind);
-  protected readonly serviceUrl = signal(this.vision.current().serviceUrl);
+  protected readonly origin = globalThis.location?.origin ?? '';
+  // Follow the stored choice, which loads asynchronously at start, until the user changes it.
+  protected readonly mode = linkedSignal<ProviderMode>(() => this.modeOf(this.vision.current()));
+  protected readonly serviceUrl = linkedSignal(() =>
+    this.vision.current().serviceUrl === SAME_ORIGIN
+      ? DEFAULT_SERVICE_URL
+      : this.vision.current().serviceUrl,
+  );
+  protected readonly serverRecommended = () =>
+    this.vision.deploymentDefault()?.serviceUrl === SAME_ORIGIN;
   protected readonly providerState = signal<SaveState>('IDLE');
   protected readonly providerError = signal<string | null>(null);
   protected readonly probe = signal<ServiceProbe | null>(null);
@@ -190,8 +221,18 @@ export class SettingsPageComponent implements OnInit {
     }
   }
 
-  protected setKind(kind: VisionProviderKind): void {
-    this.kind.set(kind);
+  private modeOf(settings: { kind: string; serviceUrl: string }): ProviderMode {
+    if (settings.kind === 'browser') return 'browser';
+    return settings.serviceUrl === SAME_ORIGIN ? 'server' : 'url';
+  }
+
+  /** Address of the chosen service: this server, or the one typed. */
+  private chosenUrl(): string {
+    return this.mode() === 'server' ? SAME_ORIGIN : this.serviceUrl();
+  }
+
+  protected setMode(mode: ProviderMode): void {
+    this.mode.set(mode);
     this.providerState.set('IDLE');
     this.probe.set(null);
   }
@@ -199,8 +240,12 @@ export class SettingsPageComponent implements OnInit {
   protected async saveProvider(event: Event): Promise<void> {
     event.preventDefault();
     try {
-      await this.vision.save({ kind: this.kind(), serviceUrl: this.serviceUrl() });
-      this.serviceUrl.set(this.vision.current().serviceUrl);
+      const mode = this.mode();
+      await this.vision.save({
+        kind: mode === 'browser' ? 'browser' : 'local-service',
+        serviceUrl: mode === 'browser' ? this.serviceUrl() : this.chosenUrl(),
+      });
+      if (mode === 'url') this.serviceUrl.set(this.vision.current().serviceUrl);
       this.providerError.set(null);
       this.providerState.set('SAVED');
     } catch (error) {
@@ -214,7 +259,7 @@ export class SettingsPageComponent implements OnInit {
 
   protected async testService(): Promise<void> {
     this.probe.set(null);
-    this.probe.set(await this.vision.probe(this.serviceUrl()));
+    this.probe.set(await this.vision.probe(this.chosenUrl()));
   }
 
   protected value(event: Event): string {

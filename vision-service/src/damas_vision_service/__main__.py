@@ -16,6 +16,10 @@ def main() -> None:
         level=settings.log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if settings.host not in ("127.0.0.1", "localhost", "::1"):
+        logging.getLogger("damas_vision_service").warning(
+            "listening on %s: only safe inside a container whose port is not published", settings.host
+        )
     uvicorn.run(
         create_app(settings),
         host=settings.host,

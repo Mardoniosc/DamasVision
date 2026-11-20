@@ -1,9 +1,13 @@
-import { inject, Injectable } from '@angular/core';
+import { inject, Injectable, signal } from '@angular/core';
 import { getSetting, SETTINGS_REPOSITORY, setSetting } from '../persistence/settings.repository';
 import {
   DEFAULT_VISION_PROVIDER,
   isVisionProviderSettings,
+  DEPLOYMENT_CONFIG_PATH,
   normalizeServiceUrl,
+  resolveServiceUrl,
+  SAME_ORIGIN,
+  serviceEndpoint,
   VISION_CONTRACT_VERSION,
   VisionProviderSettings,
 } from '../workers/vision-provider';
@@ -25,19 +29,51 @@ export class VisionProviderService {
   private readonly tuning = inject(REMOTE_VISION_TUNING);
 
   readonly current = this.state.settings;
+  private readonly deploymentState = signal<VisionProviderSettings | null>(null);
+  /** The recognizer the server recommends (`/deployment.json`), if any. */
+  readonly deploymentDefault = this.deploymentState.asReadonly();
 
-  /** Reads the stored choice; an unreadable or invalid value means the browser recognizer. */
+  /**
+   * Chooses the recognizer: the one stored on this device; else the deployment's default
+   * (the Docker image serves `/deployment.json`: the service on the same origin); else the
+   * browser recognizer.
+   */
   load(): Promise<void> {
     const loading = (async () => {
+      const deployment = await this.readDeploymentDefault();
+      this.deploymentState.set(deployment);
+      let stored: unknown;
       try {
-        const stored = await getSetting(this.settings, 'vision.provider');
-        this.state.set(isVisionProviderSettings(stored) ? stored : DEFAULT_VISION_PROVIDER);
+        stored = await getSetting(this.settings, 'vision.provider');
       } catch {
-        this.state.set(DEFAULT_VISION_PROVIDER);
+        stored = undefined;
       }
+      this.state.set(
+        isVisionProviderSettings(stored) ? stored : (deployment ?? DEFAULT_VISION_PROVIDER),
+      );
     })();
     this.state.trackLoad(loading);
     return loading;
+  }
+
+  private async readDeploymentDefault(): Promise<VisionProviderSettings | null> {
+    const origin = globalThis.location?.origin;
+    if (!origin || typeof fetch !== 'function') return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.tuning.healthTimeoutMs);
+    try {
+      const response = await fetch(serviceEndpoint(origin, DEPLOYMENT_CONFIG_PATH), {
+        signal: controller.signal,
+      });
+      if (!response.ok) return null;
+      const body = (await response.json()) as { visionProvider?: unknown };
+      return isVisionProviderSettings(body.visionProvider) ? body.visionProvider : null;
+    } catch {
+      // No deployment file (dev server, static hosting): the built-in default applies.
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Validates and stores a choice. Throws a pt-BR `Error` for an unacceptable URL. */
@@ -45,7 +81,7 @@ export class VisionProviderService {
     const serviceUrl = normalizeServiceUrl(settings.serviceUrl);
     if (!serviceUrl) {
       throw new Error(
-        'Use um endereço deste computador, por exemplo http://127.0.0.1:8765: as imagens nunca saem dele.',
+        'Use o serviço deste servidor ou um endereço deste computador, por exemplo http://127.0.0.1:8765.',
       );
     }
     const value = { kind: settings.kind, serviceUrl };
@@ -55,7 +91,9 @@ export class VisionProviderService {
 
   /** "Testar conexão": the service's health and contract version. */
   async probe(url: string): Promise<ServiceProbe> {
-    const serviceUrl = normalizeServiceUrl(url);
+    const normalized = normalizeServiceUrl(url);
+    const serviceUrl =
+      normalized && resolveServiceUrl(normalized, globalThis.location?.origin ?? '');
     if (!serviceUrl) {
       return {
         ok: false,
@@ -65,7 +103,9 @@ export class VisionProviderService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.tuning.healthTimeoutMs);
     try {
-      const response = await fetch(`${serviceUrl}/v1/health`, { signal: controller.signal });
+      const response = await fetch(serviceEndpoint(serviceUrl, '/v1/health'), {
+        signal: controller.signal,
+      });
       const body = (await response.json()) as Record<string, unknown>;
       if (!response.ok || body['status'] !== 'ok') {
         return { ok: false, message: 'O serviço respondeu com erro.' };
@@ -84,7 +124,10 @@ export class VisionProviderService {
     } catch {
       return {
         ok: false,
-        message: `Nenhum serviço respondeu em ${serviceUrl}. Inicie-o com "npm run vision:serve".`,
+        message:
+          normalized === SAME_ORIGIN
+            ? `O serviço de visão deste servidor (${serviceUrl}) não respondeu. Verifique o contêiner "vision" (docker compose ps).`
+            : `Nenhum serviço respondeu em ${serviceUrl}. Inicie-o com "npm run vision:serve".`,
       };
     } finally {
       clearTimeout(timer);

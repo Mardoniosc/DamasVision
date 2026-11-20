@@ -1,13 +1,19 @@
 import { expect, Page } from '@playwright/test';
 
-export const SERVICE_URL = 'http://127.0.0.1:8766';
+/** The service as the app reaches it: its own port in `e2e:service`, the web origin in Docker. */
+export const SERVICE_URL = process.env['E2E_SERVICE_URL'] ?? 'http://127.0.0.1:8766';
 export const SERVICE_TIMEOUT = 60_000;
 
 /** Chooses the local vision service in the settings (G3.1) and checks the connection. */
 export async function useLocalService(page: Page, url = SERVICE_URL, probe = true): Promise<void> {
   await page.goto('/settings');
-  await page.getByTestId('provider-service').check();
-  await page.getByTestId('service-url').fill(url);
+  if (process.env['E2E_SERVICE_MODE'] === 'server' && url === SERVICE_URL) {
+    // Docker: the service of the app's own server (ADR-043).
+    await page.getByTestId('provider-server').check();
+  } else {
+    await page.getByTestId('provider-service').check();
+    await page.getByTestId('service-url').fill(url);
+  }
   if (probe) {
     await page.getByTestId('test-service').click();
     await expect(page.getByTestId('probe-result')).toContainText('Serviço encontrado');

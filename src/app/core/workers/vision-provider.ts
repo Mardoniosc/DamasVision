@@ -1,8 +1,9 @@
 /**
  * Which recognizer answers the vision-worker protocol (G3.1, ADR-042):
  * - `browser` (default): OpenCV.js in a Web Worker; works offline and on any device;
- * - `local-service`: the optional Python + OpenCV service on this machine
- *   (`vision-service/`), reached over HTTP on the loopback interface only.
+ * - `local-service`: the optional Python + OpenCV service (`vision-service/`), reached over
+ *   HTTP either on this computer's loopback interface or, in the Docker setup, on the
+ *   server that serves the app (`SAME_ORIGIN`, ADR-043).
  *
  * Both implement the same protocol and return the same contract, so nothing above
  * `core/workers` depends on the choice. The choice is explicit: the app never switches
@@ -12,9 +13,26 @@ export type VisionProviderKind = 'browser' | 'local-service';
 
 export interface VisionProviderSettings {
   readonly kind: VisionProviderKind;
-  /** Base URL of the local service, e.g. `http://127.0.0.1:8765`. */
+  /** Base URL of the service (`http://127.0.0.1:8765`), or `SAME_ORIGIN`. */
   readonly serviceUrl: string;
 }
+
+/**
+ * The service on the app's own origin: the Docker setup, where nginx forwards `/v1/` to the
+ * vision container. Frames then go to the server that served the app, never elsewhere.
+ */
+export const SAME_ORIGIN = 'same-origin';
+
+/** The service's base URL for a page or worker at `origin`. */
+export function resolveServiceUrl(serviceUrl: string, origin: string): string {
+  return serviceUrl === SAME_ORIGIN ? origin : serviceUrl;
+}
+
+/**
+ * Served by a deployment (`/deployment.json`, Docker image) to choose the recognizer when
+ * the user has not chosen one on this device.
+ */
+export const DEPLOYMENT_CONFIG_PATH = '/deployment.json';
 
 /** Transport tuning for the local service (central values; see the G3.1 design §2–§5). */
 export interface RemoteVisionTuning {
@@ -53,16 +71,28 @@ export const DEFAULT_REMOTE_VISION_TUNING: RemoteVisionTuning = {
   disposeGraceMs: 1000,
 };
 
+/**
+ * URL of a service endpoint. `ngsw-bypass` keeps every call out of the app's service worker:
+ * when the service is reached on the app's own origin (the Docker setup), the worker would
+ * otherwise hold the requests while it prefetches the app (OpenCV.js, 17 MB). A query
+ * parameter, not a header, so cross-origin calls need no preflight.
+ */
+export function serviceEndpoint(serviceUrl: string, path: string): string {
+  return `${serviceUrl}${path}${path.includes('?') ? '&' : '?'}ngsw-bypass=1`;
+}
+
 /** The contract version this app speaks (`BoardRecognitionResult` v1). */
 export const VISION_CONTRACT_VERSION = 1;
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
- * Normalizes a service URL, accepting only http(s) on the loopback interface: frames
- * must never leave this machine (no cloud, ADR-042). Returns null when not acceptable.
+ * Normalizes a service URL, accepting `SAME_ORIGIN` or http(s) on the loopback interface:
+ * frames go only to this computer or to the server of the app itself (no cloud, ADR-042,
+ * ADR-043). Returns null when not acceptable.
  */
 export function normalizeServiceUrl(value: string): string | null {
+  if (value.trim() === SAME_ORIGIN) return SAME_ORIGIN;
   let url: URL;
   try {
     url = new URL(value.trim());

@@ -40,7 +40,9 @@ const json = (body: unknown, status = 200): Response =>
 function fakeService(routes: Record<string, Route>) {
   const calls: Call[] = [];
   const fetch = async (url: string, init: RequestInit): Promise<Response> => {
-    const path = url.slice(URL_BASE.length);
+    // Every call bypasses the app's service worker (`ngsw-bypass`); routes ignore the flag.
+    expect(url).toMatch(/[?&]ngsw-bypass=1$/);
+    const path = url.slice(URL_BASE.length).replace(/[?&]ngsw-bypass=1$/, '');
     const call = { method: init.method ?? 'GET', path, init };
     calls.push(call);
     const route = routes[`${call.method} ${path.split('?')[0]}`];
@@ -331,5 +333,24 @@ describe('remote vision handler (G3.1)', () => {
       'DELETE /v1/sessions/s1/calibration',
       'DELETE /v1/sessions/s1',
     ]);
+  });
+
+  it("reaches a service on the app's own origin (Docker)", async () => {
+    const urls: string[] = [];
+    const handle = createRemoteVisionHandler({
+      fetch: async (url) => {
+        urls.push(url);
+        return json({ status: 'ok', contractVersion: 1 });
+      },
+      post: () => undefined,
+      encode: async () => new Blob(),
+      decode: async () => fakeBitmap() as FakeBitmap & ImageBitmap,
+      origin: 'http://192.168.0.5:8092',
+    });
+
+    await handle({ ...CONFIGURE, serviceUrl: 'same-origin' });
+    await handle({ type: 'INIT', config: DEFAULT_VISION_CONFIG });
+
+    expect(urls[0]).toBe('http://192.168.0.5:8092/v1/health?ngsw-bypass=1');
   });
 });

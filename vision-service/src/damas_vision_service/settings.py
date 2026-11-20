@@ -21,7 +21,9 @@ DEFAULT_ORIGINS = (
 
 @dataclass(frozen=True)
 class ServiceSettings:
-    #: Loopback only: the service must never listen on the network.
+    #: Loopback by default: the service must never listen on the machine's network.
+    #: Inside a container (docker-compose.yml) it listens on the container's private network,
+    #: whose port is not published; only the web proxy's port is.
     host: str = "127.0.0.1"
     port: int = 8765
     allowed_origins: tuple[str, ...] = DEFAULT_ORIGINS
@@ -57,10 +59,11 @@ def _float(name: str, default: float) -> float:
 
 
 def load_settings() -> ServiceSettings:
-    """Reads `DAMAS_VISION_*` overrides. The host is fixed to the loopback interface."""
+    """Reads `DAMAS_VISION_*` overrides. `DAMAS_VISION_HOST` is meant for containers only."""
     base = ServiceSettings()
     extra = os.environ.get("DAMAS_VISION_ORIGINS", "")
     return ServiceSettings(
+        host=os.environ.get("DAMAS_VISION_HOST", base.host),
         port=_int("DAMAS_VISION_PORT", base.port),
         max_body_bytes=_int("DAMAS_VISION_MAX_BODY_BYTES", base.max_body_bytes),
         max_sessions=_int("DAMAS_VISION_MAX_SESSIONS", base.max_sessions),

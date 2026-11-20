@@ -81,6 +81,10 @@ Camera access requires a secure context: deploy behind HTTPS (any static host wi
 
 `vision-service/` is an alternative recognizer: Python + FastAPI + OpenCV on `127.0.0.1`, speaking the same protocol and giving the same answers as the browser recognizer (parity tests). Set it up with `npm run vision:setup`, run it with `npm run vision:serve`, and choose it in **Configurações → Reconhecimento**. Details: [vision-service/README.md](vision-service/README.md), [ADR-042](docs/architecture/decisions.md), [G3.1 report](docs/architecture/g3.1-report.md).
 
+## Docker
+
+`npm run docker:up` builds and starts the app and the vision service in containers; only `http://localhost:8092` is published. See [docs/release/docker.md](docs/release/docker.md).
+
 ## Project layout
 
 ```text

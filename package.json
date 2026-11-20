@@ -28,7 +28,10 @@
     "vision:serve": "node scripts/vision-service.mjs serve",
     "vision:test": "node scripts/vision-service.mjs test",
     "vision:contract": "node scripts/vision-service.mjs contract",
-    "vision:eval": "node scripts/vision-service.mjs eval"
+    "vision:eval": "node scripts/vision-service.mjs eval",
+    "docker:up": "docker compose up -d --build --wait",
+    "docker:down": "docker compose down",
+    "e2e:docker": "playwright test --config=playwright.docker.config.ts"
   },
   "dependencies": {
     "@angular/common": "22.3.0",

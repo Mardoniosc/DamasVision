@@ -350,3 +350,23 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - **E7:** one additive setting key `vision.provider` (no schema change), authorized in Phase 2.
   - **Not done:** Docker (no benefit for a local Windows workflow), Python linter/type checker (not approved), a feature study (needs real samples of the failing condition).
 - **Versions (exact pins, Python 3.11.9):** fastapi 0.165.0, uvicorn 0.54.0, pydantic 2.14.4, numpy 2.4.6, opencv-python-headless 5.0.0.93 (same major/minor as OpenCV.js 5.0.0), pytest 9.2.0 and httpx 0.28.1 (dev). The full freeze, transitive dependencies included (starlette 1.10.0, anyio 4.16.0, …), is `vision-service/requirements.lock`.
+
+## ADR-043 — Docker deployment on one port (8092)
+
+- **Context:** the user asked (2026-11-20) to run everything in containers with only port 8092 available. ADR-042 had left Docker out for the local Windows workflow.
+- **Decision:**
+  - `docker-compose.yml` runs two containers: `web` (nginx serving the production build) and `vision` (the vision service).
+  - Only `web` publishes a port: `127.0.0.1:8092`, loopback only, so frames stay on the computer and the page is a secure context for the camera.
+  - nginx forwards `/v1/` to `vision:8765` on the compose network. App and service share one origin, so no CORS is needed.
+  - The service listens on `0.0.0.0` inside its container (`DAMAS_VISION_HOST`, container use only). It runs non-root with a read-only file system.
+  - Service calls carry `ngsw-bypass`. On the same origin the app's service worker otherwise held them while prefetching the app; this was found by the Docker E2E.
+  - The web image's build context is an allow list (`.dockerignore`). It must include `.postcssrc.json`: without it Tailwind is not processed and the layout collapses, which the Docker E2E also caught.
+- **Versions:** `node:26.13.1-alpine` (build stage), `nginx:1.30.7-alpine`, `python:3.11.9-slim-bookworm`. Runtime Python pins come from `requirements.txt`, constrained by `requirements.lock`.
+- **Verification:** `npm run e2e:docker` runs the service E2E specs against the running containers.
+- **Update (same day): the service of the app's own server.**
+  - In the Docker setup the service is on the app's origin. The default address `http://127.0.0.1:8765` (the `vision:serve` case) did not reach it, and the loopback-only rule refused the server's address. The user hit this when testing the Docker setup.
+  - The setting `vision.provider.serviceUrl` may now be `same-origin`. It resolves to the page's (and the remote worker's) origin; frames then go only to the server that served the app. Absolute addresses stay loopback-only.
+  - The image serves `/deployment.json` (`local-service`, `same-origin`). Precedence: a choice saved on the device, then the deployment default, then the browser recognizer. A fresh browser therefore uses the server's service with no configuration.
+  - The settings offer three options: the browser, the vision service of this server (marked as recommended when the deployment says so), and a service at another address on this computer. Failure messages name the container instead of `npm run vision:serve`.
+  - The published address is `${DAMAS_VISION_BIND:-127.0.0.1}:8092`. Other devices need HTTPS in front for the camera (secure context).
+  - Verified by `tests/e2e-service/automatic.docker.spec.ts`.

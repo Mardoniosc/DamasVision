@@ -159,7 +159,9 @@ describe('Persistence pages (E7)', () => {
     url.dispatchEvent(new Event('input'));
     form.dispatchEvent(new Event('submit'));
     await settle();
-    expect(form.querySelector('[role="alert"]')?.textContent).toContain('nunca saem dele');
+    expect(form.querySelector('[role="alert"]')?.textContent).toContain(
+      'endereço deste computador',
+    );
     expect(settings.values.has('vision.provider')).toBe(false);
 
     url.value = 'http://localhost:8765';
@@ -177,6 +179,24 @@ describe('Persistence pages (E7)', () => {
       serviceUrl: 'http://localhost:8765',
     });
     expect(element.querySelector('[data-testid="provider-status"]')).not.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("settings choose the vision service of the app's server (Docker, ADR-043)", async () => {
+    vi.stubGlobal('fetch', async () => new Response('{}', { status: 404 }));
+    const { element, settle } = await open('/settings');
+    const form = element.querySelector('[data-testid="vision-provider-form"]') as HTMLFormElement;
+
+    (element.querySelector('[data-testid="provider-server"]') as HTMLInputElement).click();
+    await settle();
+    expect(element.querySelector('[data-testid="service-url"]')).toBeNull();
+    form.dispatchEvent(new Event('submit'));
+    await settle();
+
+    expect(settings.values.get('vision.provider')).toEqual({
+      kind: 'local-service',
+      serviceUrl: 'same-origin',
+    });
     vi.unstubAllGlobals();
   });
 });

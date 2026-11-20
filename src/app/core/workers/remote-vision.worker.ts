@@ -30,6 +30,7 @@ const handle = createRemoteVisionHandler({
   encode,
   decode: (blob) => createImageBitmap(blob),
   closeSelf: () => close(),
+  origin: location.origin,
 });
 
 addEventListener('message', (event: MessageEvent<unknown>) => {

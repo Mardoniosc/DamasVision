@@ -55,6 +55,7 @@ If sources conflict, stop and report the conflict.
 | Full validation             | `npm run validate` (lint, format, test, build)                                                                                                                              |
 | E2E on the production build | `npm run e2e:prod` (PWA/offline, profiling → `docs/testing/performance.md`)                                                                                                 |
 | Local vision service        | `npm run vision:setup` once, then `npm run vision:serve`; tests `npm run vision:test`; metrics `npm run vision:eval`; E2E `npm run e2e:service`; all `npm run validate:all` |
+| Docker (port 8092 only)     | `npm run docker:up` / `npm run docker:down`; E2E against it `npm run e2e:docker` (docs/release/docker.md, ADR-043)                                                          |
 | Recognition metrics report  | `npm run eval:recognition` (real samples → `docs/vision/recognition-metrics.md`)                                                                                            |
 
 First-time E2E setup: `npx playwright install chromium`.

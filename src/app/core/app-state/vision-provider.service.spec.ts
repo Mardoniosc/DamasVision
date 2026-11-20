@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { InMemorySettings } from '../../../../tests/fixtures/in-memory-settings';
 import { SETTINGS_REPOSITORY } from '../persistence/settings.repository';
-import { normalizeServiceUrl } from '../workers/vision-provider';
+import { normalizeServiceUrl, resolveServiceUrl } from '../workers/vision-provider';
 import { VisionProviderState } from '../workers/vision-provider.state';
 import { VISION_WORKER_FACTORY, VisionWorkerClient } from '../workers/vision-worker.client';
 import { VisionProviderService } from './vision-provider.service';
@@ -64,7 +64,7 @@ describe('vision provider (G3.1)', () => {
     expect(TestBed.inject(VisionProviderState).usesService()).toBe(true);
     await expect(
       service().save({ kind: 'local-service', serviceUrl: 'http://10.0.0.2:8765' }),
-    ).rejects.toThrow('as imagens nunca saem dele');
+    ).rejects.toThrow('Use o serviço deste servidor ou um endereço deste computador');
   });
 
   it('probes the service health and its contract version', async () => {
@@ -142,5 +142,73 @@ describe('vision provider (G3.1)', () => {
     await init;
 
     expect(created).toEqual(['local-service']);
+  });
+
+  describe("the service of the app's own server (Docker, ADR-043)", () => {
+    const deploymentFile = (body: unknown, status = 200) =>
+      vi.stubGlobal('fetch', async (url: string) =>
+        url.includes('/deployment.json')
+          ? new Response(JSON.stringify(body), { status })
+          : new Response('{}', { status: 404 }),
+      );
+
+    it('accepts the same-origin address', () => {
+      expect(normalizeServiceUrl('same-origin')).toBe('same-origin');
+      expect(resolveServiceUrl('same-origin', 'http://192.168.0.5:8092')).toBe(
+        'http://192.168.0.5:8092',
+      );
+      expect(resolveServiceUrl('http://127.0.0.1:8765', 'http://x:8092')).toBe(
+        'http://127.0.0.1:8765',
+      );
+    });
+
+    it("uses the server's default when nothing is stored on this device", async () => {
+      deploymentFile({ visionProvider: { kind: 'local-service', serviceUrl: 'same-origin' } });
+
+      await service().load();
+
+      expect(service().current()).toEqual({ kind: 'local-service', serviceUrl: 'same-origin' });
+      expect(service().deploymentDefault()?.serviceUrl).toBe('same-origin');
+    });
+
+    it("a choice stored on this device wins over the server's default", async () => {
+      deploymentFile({ visionProvider: { kind: 'local-service', serviceUrl: 'same-origin' } });
+      await settings.set('vision.provider', {
+        kind: 'browser',
+        serviceUrl: 'http://127.0.0.1:8765',
+      });
+
+      await service().load();
+
+      expect(service().current().kind).toBe('browser');
+    });
+
+    it('ignores a missing or invalid deployment file', async () => {
+      deploymentFile('<html>', 200);
+      await service().load();
+      expect(service().current().kind).toBe('browser');
+
+      deploymentFile({ visionProvider: { kind: 'local-service', serviceUrl: 'http://evil.test' } });
+      await service().load();
+      expect(service().current().kind).toBe('browser');
+    });
+
+    it("probes the service on the app's origin", async () => {
+      const urls: string[] = [];
+      vi.stubGlobal('fetch', async (url: string) => {
+        urls.push(url);
+        return new Response(
+          JSON.stringify({
+            status: 'ok',
+            contractVersion: 1,
+            serviceVersion: '0.1.0',
+            opencvVersion: '5.0.0',
+          }),
+        );
+      });
+
+      expect(await service().probe('same-origin')).toMatchObject({ ok: true });
+      expect(urls[0]).toBe(`${location.origin}/v1/health?ngsw-bypass=1`);
+    });
   });
 });

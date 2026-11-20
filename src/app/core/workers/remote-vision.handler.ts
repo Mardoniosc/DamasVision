@@ -3,6 +3,8 @@ import { isVisionConfig, VisionConfig } from '../../vision/vision.config';
 import {
   isRemoteVisionConfigMessage,
   RemoteVisionTuning,
+  resolveServiceUrl,
+  serviceEndpoint,
   VISION_CONTRACT_VERSION,
 } from './vision-provider';
 import {
@@ -29,6 +31,8 @@ export interface RemoteVisionHandlerDependencies {
   readonly decode: (blob: Blob) => Promise<ImageBitmap>;
   /** Ends the worker once its session is closed (after DISPOSE). */
   readonly closeSelf?: () => void;
+  /** Origin of the worker (= the app's), for a service on the same origin. */
+  readonly origin?: string;
 }
 
 type RequestType = VisionWorkerRequest['type'];
@@ -128,7 +132,7 @@ export function createRemoteVisionHandler(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response: Response;
     try {
-      response = await deps.fetch(`${current.serviceUrl}${path}`, {
+      response = await deps.fetch(serviceEndpoint(current.serviceUrl, path), {
         ...init,
         signal: controller.signal,
       });
@@ -467,7 +471,7 @@ export function createRemoteVisionHandler(
     const id = current.sessionId;
     if (!id) return;
     try {
-      await deps.fetch(`${current.serviceUrl}/v1/sessions/${id}`, {
+      await deps.fetch(serviceEndpoint(current.serviceUrl, `/v1/sessions/${id}`), {
         method: 'DELETE',
         keepalive: true,
       });
@@ -479,7 +483,7 @@ export function createRemoteVisionHandler(
   return async (message: unknown): Promise<void> => {
     if (isRemoteVisionConfigMessage(message)) {
       state = {
-        serviceUrl: message.serviceUrl,
+        serviceUrl: resolveServiceUrl(message.serviceUrl, deps.origin ?? ''),
         tuning: message.tuning,
         config: null,
         sessionId: null,
@@ -508,9 +512,12 @@ export function createRemoteVisionHandler(
         if (current) {
           current.calibration = null;
           void deps
-            .fetch(`${current.serviceUrl}/v1/sessions/${current.sessionId}/calibration`, {
-              method: 'DELETE',
-            })
+            .fetch(
+              serviceEndpoint(current.serviceUrl, `/v1/sessions/${current.sessionId}/calibration`),
+              {
+                method: 'DELETE',
+              },
+            )
             .catch(() => undefined);
         }
         return;
