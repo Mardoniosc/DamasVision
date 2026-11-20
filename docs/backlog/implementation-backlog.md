@@ -100,10 +100,17 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | E7-T07 | Reload / recovery                        | DONE                  |
 | **G7** | Data persists and failure handling works | APPROVED (2026-11-20) |
 
-## Later epics
+## E8 — Release quality
 
-| Epic | Scope           | Gate | Status |
-| ---- | --------------- | ---- | ------ |
-| E8   | Release quality | G8   | TODO   |
+| Task   | Description                             | Status                                           |
+| ------ | --------------------------------------- | ------------------------------------------------ |
+| E8-T01 | E2E (incl. camera-detected moves)       | DONE                                             |
+| E8-T02 | Physical tests                          | PROCEDURE READY — results to record by the user  |
+| E8-T03 | Profiling                               | DONE (`docs/testing/performance.md`)             |
+| E8-T04 | Resource-leak tests                     | DONE                                             |
+| E8-T05 | PWA / offline                           | DONE (desktop Chromium); real devices pending    |
+| E8-T06 | Accessibility / responsive review       | DONE (automated + manual); screen reader pending |
+| E8-T07 | Release docs                            | DONE                                             |
+| **G8** | Release candidate with measured results | APPROVED (2026-11-20)                            |
 
-Task-level breakdown for E4–E8 is in the specification §17.
+All epics of the specification (§17) are implemented and every gate is approved. G8 approves release candidate 0.1.0-rc.1 on the automated measurements; the physical test results (E8-T02) remain to be recorded, and they decide the final release.

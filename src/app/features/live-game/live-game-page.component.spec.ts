@@ -214,6 +214,24 @@ describe('LiveGamePageComponent (E6-T04/T05)', () => {
     expect(devices.liveTracks()).toEqual([]);
   });
 
+  it('a camera interruption is explained, the game continues, and the camera reconnects (P13)', async () => {
+    const { controller, element, text, until } = await open();
+    await until(() => expect(text('game-phase')).toBe('Acompanhando o tabuleiro'));
+
+    devices.liveTracks()[0]?.simulateEnded();
+    await until(() => expect(text('camera-error')).toContain('desconectada ou interrompida'));
+    expect(controller.session()?.status).toBe('ACTIVE');
+
+    Array.from(element.querySelectorAll('button'))
+      .find((b) => b.textContent?.trim() === 'Reconectar câmera')
+      ?.click();
+    await until(() => expect(element.querySelector('[data-testid="camera-error"]')).toBeNull());
+    expect(devices.liveTracks()).toHaveLength(1);
+
+    play(initialBoard(), 'WHITE', 'c3-d4');
+    await until(() => expect(text('last-move')).toBe('Brancas: c3-d4'));
+  }, 20_000);
+
   it('releases the camera when leaving', async () => {
     const { fixture, text, until } = await open();
     await until(() => expect(text('game-phase')).toBe('Acompanhando o tabuleiro'));

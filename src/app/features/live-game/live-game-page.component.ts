@@ -117,6 +117,11 @@ export class LiveGamePageComponent {
     return `${PLAYER_NAMES[player]}${name && name !== PLAYER_NAMES[player] ? ` (${name})` : ''}`;
   }
 
+  /** Camera interrupted (unplugged, revoked): reopen it and resume reading (P13). */
+  protected async reconnect(): Promise<void> {
+    await this.recognition.start();
+  }
+
   protected async togglePause(): Promise<void> {
     if (this.game.phase() === 'PAUSED') await this.game.resume();
     else await this.game.pause();

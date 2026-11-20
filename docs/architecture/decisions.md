@@ -317,3 +317,18 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
   - controller tests across a simulated reload and with failures;
   - page tests;
   - an E2E that reloads the page in Chromium's real IndexedDB.
+
+## ADR-041 — Release quality: production E2E, camera-move video, game statistics (E8)
+
+- **Context:** E8 asks for E2E, physical tests, profiling, resource-leak tests, PWA/offline, an accessibility/responsive review and release docs; Gate G8 is a release candidate with measured results.
+- **Decision:**
+  - **Camera-detected moves (E8-T01):** `chromium-moves` plays a generated video of a game (the opening, then `c3-d4`, then `f6-e5`; 1 fps, about 50 MB, git-ignored). The whole chain must record both moves from the camera alone.
+  - **Release specs (`*.release.spec.ts`, on the board video):**
+    - resource soak: 6 navigation cycles through the camera pages, then no live track, no worker, and a flat main-thread heap after a forced GC (DevTools protocol);
+    - a 30 s live game;
+    - accessibility and responsiveness: every page at 375 and 1280 px; no horizontal scroll, one `h1`, accessible names from the Chromium accessibility tree, visible keyboard focus. The checker was verified to catch an injected unnamed button and an overflow.
+  - **Production E2E (E8-T03/T05):** `playwright.prod.config.ts` builds the app and serves `dist/` with `scripts/serve-dist.mjs` (Node built-ins only, SPA fallback; no new dependency). `tests/e2e-prod` checks installability (manifest, icons, service worker) and offline use (open, calibrate, recognize with OpenCV.js from the cache). It also profiles and writes `docs/testing/performance.md`.
+  - **Physical tests (E8-T02):** `docs/testing/physical-test-matrix.md` holds the procedure, scenarios P1–P14, targets and the results record. `gameStatistics` (moves by camera vs. manual, captures, promotions, undos, corrections) is shown in the history, and each game can be exported as JSON.
+  - **Camera interruption:** the live page shows the camera error with **Reconectar câmera** (restarts camera and recognition). The game continues and moves can be entered by hand.
+  - **Release docs:** README (user instructions), `docs/release/release-notes.md`, `docs/testing/release-review.md` (§21/§22 with evidence). Version `0.1.0-rc.1`.
+- **Not done:** the `typescript-eslint` update that would clear 7 moderate dev-only audit findings (needs approval); real-device and physical measurements (the user's sessions).

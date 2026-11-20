@@ -18,6 +18,29 @@ import {
 export const E2E_VIDEO_SIZE = { width: 640, height: 480 } as const;
 export const E2E_POSITION: readonly Piece[] = midgamePosition();
 
+/**
+ * A game seen by the camera (E8-T01): each segment shows a position for some seconds, at
+ * one frame per second (the app samples it every 200 ms). Used to test moves detected by
+ * the camera end to end, with the real worker and OpenCV.js.
+ */
+export function writeMoveVideo(
+  path: string,
+  segments: readonly { readonly position: readonly Piece[]; readonly seconds: number }[],
+): void {
+  const header = Buffer.from(
+    `YUV4MPEG2 W${E2E_VIDEO_SIZE.width} H${E2E_VIDEO_SIZE.height} F1:1 Ip A1:1 C420jpeg\n`,
+    'ascii',
+  );
+  const chunks: Buffer[] = [header];
+  for (const { position, seconds } of segments) {
+    const board = renderNormalizedBoard(position, { size: 400 });
+    const frame = toI420(renderCameraView(board, defaultCorners(E2E_VIDEO_SIZE), E2E_VIDEO_SIZE));
+    for (let i = 0; i < seconds; i++) chunks.push(Buffer.from('FRAME\n', 'ascii'), frame);
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, Buffer.concat(chunks));
+}
+
 export function writeSyntheticBoardVideo(path: string, frames = 2): void {
   const board = renderNormalizedBoard(E2E_POSITION, { size: 400 });
   const image = renderCameraView(board, defaultCorners(E2E_VIDEO_SIZE), E2E_VIDEO_SIZE);

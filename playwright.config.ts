@@ -1,11 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
-import { SYNTHETIC_BOARD_VIDEO } from './tests/e2e/support/paths';
+import { MOVE_VIDEO, SYNTHETIC_BOARD_VIDEO } from './tests/e2e/support/paths';
 
 const PORT = 4300;
 const BASE_URL = `http://localhost:${PORT}`;
 const isCI = Boolean(process.env['CI']);
 /** Specs that need the synthetic board video (recognition and the live game). */
-const RECOGNITION_SPECS = /(recognition|live-game)\.spec\.ts/;
+const RECOGNITION_SPECS = /(recognition|live-game|release)\.spec\.ts/;
+/** Specs that need the video of a game in progress (camera-detected moves). */
+const MOVE_SPECS = /camera-moves\.spec\.ts/;
 
 /**
  * E2E in Chromium with synthetic cameras:
@@ -29,7 +31,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: RECOGNITION_SPECS,
+      testIgnore: [RECOGNITION_SPECS, MOVE_SPECS],
       use: {
         ...devices['Desktop Chrome'],
         permissions: ['camera'],
@@ -51,6 +53,21 @@ export default defineConfig({
           args: [
             '--use-fake-device-for-media-stream',
             `--use-file-for-fake-video-capture=${SYNTHETIC_BOARD_VIDEO}`,
+            '--use-fake-ui-for-media-stream',
+          ],
+        },
+      },
+    },
+    {
+      name: 'chromium-moves',
+      testMatch: MOVE_SPECS,
+      use: {
+        ...devices['Desktop Chrome'],
+        permissions: ['camera'],
+        launchOptions: {
+          args: [
+            '--use-fake-device-for-media-stream',
+            `--use-file-for-fake-video-capture=${MOVE_VIDEO}`,
             '--use-fake-ui-for-media-stream',
           ],
         },

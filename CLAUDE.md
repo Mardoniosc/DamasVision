@@ -53,6 +53,7 @@ If sources conflict, stop and report the conflict.
 | Production build            | `npm run build` (output `dist/damas-vision/`)                                    |
 | E2E (Playwright, Chromium)  | `npm run e2e` (starts `ng serve` on port 4300)                                   |
 | Full validation             | `npm run validate` (lint, format, test, build)                                   |
+| E2E on the production build | `npm run e2e:prod` (PWA/offline, profiling → `docs/testing/performance.md`)      |
 | Recognition metrics report  | `npm run eval:recognition` (real samples → `docs/vision/recognition-metrics.md`) |
 
 First-time E2E setup: `npx playwright install chromium`.
@@ -96,12 +97,13 @@ If a rule blocks legitimate work, raise it instead of disabling it inline.
 
 ## Current status
 
-- G0–G6 approved (2026-11-19); G7 approved (2026-11-20).
+- G0–G6 approved (2026-11-19); G7 and G8 approved (2026-11-20). All epics of the specification are done; the app is release candidate `0.1.0-rc.1`.
 - E3 — Recognition implemented and refactored in G3 (ADR-030–036). G3 approved without further real samples: real kings, empty boards, artificial light and obstruction are still unmeasured (see `docs/vision/recognition.md`, Known limitations). G3 committed (`f13fa4e`).
 - E4 — Engine implemented (`domain/engine/`, rules in `docs/engine/brazilian-checkers-rules.md`, ADR-037). G4 approved, with the draw-rule interpretations confirmed as documented. E4 committed (`4a0b692`).
 - E5 — Stabilization and move inference implemented (`domain/move/`, `docs/vision/move-inference.md`, ADR-038). G5 approved; committed (`2e10692`).
 - E6 — Game integration implemented (`core/app-state/game-session.controller.ts`, `domain/game/`, `/game/:id`, ADR-039). G6 approved; committed (`368afc2`).
-- E7 — Persistence implemented (schema v2, `DexieGameRepository`, settings, `/games`, reload, ADR-040). G7 approved. Next is E8 (release quality); start it only when the user asks.
+- E7 — Persistence implemented (schema v2, `DexieGameRepository`, settings, `/games`, reload, ADR-040). G7 approved; committed (`eabecfd`).
+- E8 — Release quality implemented (camera-move E2E, release specs, production E2E/PWA/profiling, physical test procedure, release docs; ADR-041). G8 approved as a release candidate on the automated measurements. The physical test matrix results are still to be recorded by the user (`docs/testing/physical-test-matrix.md`); they decide the final release. The `typescript-eslint` update (7 moderate dev-only audit findings) still needs approval.
 - Only `GameSessionController` changes the authoritative session, always through the engine-validated functions in `domain/game/game-session.ts`, and it persists before showing a change. Games are stored in IndexedDB (`GAME_REPOSITORY` → `DexieGameRepository`); specs that do not test persistence provide `tests/fixtures/in-memory-game-repository.ts`.
 - Move inference must never commit a wrong move: `tests/integration/move-inference.spec.ts` must keep zero false commits; the app chain uses `PIPELINE_INFERENCE_CONFIG` on G3-stabilized observations.
 - Engine changes must keep `npm run test:engine` green; every rule change needs a fixture in `src/app/domain/engine/*.spec.ts` and an update to the rules document.

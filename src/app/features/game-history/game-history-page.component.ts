@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 import { GameSessionController } from '../../core/app-state/game-session.controller';
 import { GAME_REPOSITORY, PersistedGame } from '../../core/persistence/game.repository';
 import { toPersistenceError } from '../../core/persistence/persistence.models';
+import { gameStatistics } from '../../domain/game/game-statistics';
+import { downloadJson } from '../../shared/utilities/file-export';
 import { resultMessage } from '../live-game/game-messages';
 
 const STATUS_LABELS: Readonly<Record<PersistedGame['status'], string>> = {
@@ -13,6 +15,16 @@ const STATUS_LABELS: Readonly<Record<PersistedGame['status'], string>> = {
 };
 
 const DATE = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+/** "N pela câmera · M manuais", plus adjustments when any. */
+function statisticsText(game: PersistedGame): string | null {
+  const stats = gameStatistics(game);
+  if (stats.moves === 0) return null;
+  const parts = [`${stats.byCamera} pela câmera`, `${stats.manual} manual(is)`];
+  if (stats.undos > 0) parts.push(`${stats.undos} desfeito(s)`);
+  if (stats.corrections > 0) parts.push(`${stats.corrections} correção(ões) de posição`);
+  return parts.join(' · ');
+}
 
 /** Saved games on this device (E7-T06): open or continue, delete. */
 @Component({
@@ -37,6 +49,7 @@ export class GameHistoryPageComponent implements OnInit {
       result: resultMessage(game.result),
       moves: game.moves.length,
       finished: game.status === 'FINISHED',
+      stats: statisticsText(game),
     })),
   );
 
@@ -57,6 +70,21 @@ export class GameHistoryPageComponent implements OnInit {
     } catch (error) {
       this.error.set(toPersistenceError(error).message);
     }
+  }
+
+  /**
+   * Exports a game as JSON (E8-T02): the record and its statistics, for the physical test
+   * matrix. Positions and moves only — never camera images.
+   */
+  protected export(id: string): void {
+    const game = this.games()?.find((g) => g.id === id);
+    if (!game) return;
+    downloadJson(`damas-vision-partida-${game.createdAt.replace(/[:.]/g, '-')}.json`, {
+      format: 'damas-vision/game',
+      version: 1,
+      statistics: gameStatistics(game),
+      game,
+    });
   }
 
   private async load(): Promise<void> {

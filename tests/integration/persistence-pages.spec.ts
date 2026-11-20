@@ -88,7 +88,9 @@ describe('Persistence pages (E7)', () => {
   it('deleting a game asks for confirmation first', async () => {
     const { element, settle } = await open('/games');
     const deleteButton = () =>
-      element.querySelector<HTMLButtonElement>('[data-game="done"] button') as HTMLButtonElement;
+      [...element.querySelectorAll<HTMLButtonElement>('[data-game="done"] button')].at(
+        -1,
+      ) as HTMLButtonElement;
 
     deleteButton().click();
     await settle();
