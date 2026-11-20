@@ -69,6 +69,40 @@ test.describe('Live game (E6)', () => {
     await expect(page.getByTestId('game-result')).toHaveText('Vitória das brancas (desistência).');
   });
 
+  test('the game survives a reload and is listed in the history (E7)', async ({ page }) => {
+    await startGame(page);
+    await expect(page.getByTestId('game-phase')).toHaveText('Acompanhando o tabuleiro', {
+      timeout: OPENCV_TIMEOUT,
+    });
+    await page.getByText('Registrar lance manualmente').click();
+    const move = page.locator('[data-move]').first();
+    const notation = (await move.getAttribute('data-move')) ?? '';
+    await move.click();
+    await expect(page.getByTestId('last-move')).toHaveText('Brancas: ' + notation);
+    const url = page.url();
+
+    await page.reload();
+
+    await expect(page).toHaveURL(url);
+    await expect(page.getByRole('heading', { level: 1, name: 'Ana × Bruno' })).toBeVisible();
+    await expect(page.getByTestId('last-move')).toHaveText('Brancas: ' + notation);
+    await expect(page.getByTestId('to-move')).toHaveText('Pretas (Bruno)');
+    await expect(page.getByTestId('move-history')).toContainText(notation);
+
+    await page.goto('/');
+    await expect(page.getByTestId('resume-game')).toContainText('Ana × Bruno');
+    await page.getByRole('link', { name: 'Continuar partida' }).click();
+    await expect(page).toHaveURL(url);
+
+    await page.goto('/games');
+    const row = page.locator('[data-game]');
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('1 lance(s)');
+    await row.getByRole('button', { name: 'Excluir' }).click();
+    await row.getByRole('button', { name: 'Confirmar exclusão' }).click();
+    await expect(page.getByText('Nenhuma partida salva ainda.')).toBeVisible();
+  });
+
   test('leaving the live game releases the camera and the worker', async ({ page }) => {
     await startGame(page);
     await expect(page.getByTestId('game-phase')).toHaveText('Acompanhando o tabuleiro', {

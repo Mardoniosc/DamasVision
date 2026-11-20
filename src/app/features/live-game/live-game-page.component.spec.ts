@@ -6,6 +6,8 @@ import { FakeVisionWorker, happyPathReply } from '../../../../tests/fixtures/fak
 import { InMemoryCalibrationRepository } from '../../../../tests/fixtures/in-memory-calibration-repository';
 import { recognitionResultFrom } from '../../../../tests/fixtures/recognition-results';
 import { GameSessionController } from '../../core/app-state/game-session.controller';
+import { InMemoryGameRepository } from '../../../../tests/fixtures/in-memory-game-repository';
+import { GAME_REPOSITORY } from '../../core/persistence/game.repository';
 import { CAMERA_ENVIRONMENT } from '../../core/camera/camera.config';
 import { FRAME_SOURCE_FACTORY } from '../../core/frame-capture/frame-capture.config';
 import { CALIBRATION_REPOSITORY } from '../../core/persistence/calibration.repository';
@@ -51,6 +53,7 @@ describe('LiveGamePageComponent (E6-T04/T05)', () => {
     TestBed.configureTestingModule({
       imports: [LiveGamePageComponent],
       providers: [
+        { provide: GAME_REPOSITORY, useValue: new InMemoryGameRepository() },
         provideRouter([]),
         {
           provide: CAMERA_ENVIRONMENT,

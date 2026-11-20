@@ -96,12 +96,13 @@ If a rule blocks legitimate work, raise it instead of disabling it inline.
 
 ## Current status
 
-- G0, G1, G2, G3, G4, G5 and G6 approved (2026-11-19).
+- G0–G6 approved (2026-11-19); G7 approved (2026-11-20).
 - E3 — Recognition implemented and refactored in G3 (ADR-030–036). G3 approved without further real samples: real kings, empty boards, artificial light and obstruction are still unmeasured (see `docs/vision/recognition.md`, Known limitations). G3 committed (`f13fa4e`).
 - E4 — Engine implemented (`domain/engine/`, rules in `docs/engine/brazilian-checkers-rules.md`, ADR-037). G4 approved, with the draw-rule interpretations confirmed as documented. E4 committed (`4a0b692`).
 - E5 — Stabilization and move inference implemented (`domain/move/`, `docs/vision/move-inference.md`, ADR-038). G5 approved; committed (`2e10692`).
-- E6 — Game integration implemented (`core/app-state/game-session.controller.ts`, `domain/game/`, `/game/:id`, ADR-039). G6 approved. Next is E7 (persistence); start it only when the user asks.
-- Only `GameSessionController` changes the authoritative session, always through the engine-validated functions in `domain/game/game-session.ts`, and it persists before showing a change. Games live in memory (`GAME_REPOSITORY`) until E7.
+- E6 — Game integration implemented (`core/app-state/game-session.controller.ts`, `domain/game/`, `/game/:id`, ADR-039). G6 approved; committed (`368afc2`).
+- E7 — Persistence implemented (schema v2, `DexieGameRepository`, settings, `/games`, reload, ADR-040). G7 approved. Next is E8 (release quality); start it only when the user asks.
+- Only `GameSessionController` changes the authoritative session, always through the engine-validated functions in `domain/game/game-session.ts`, and it persists before showing a change. Games are stored in IndexedDB (`GAME_REPOSITORY` → `DexieGameRepository`); specs that do not test persistence provide `tests/fixtures/in-memory-game-repository.ts`.
 - Move inference must never commit a wrong move: `tests/integration/move-inference.spec.ts` must keep zero false commits; the app chain uses `PIPELINE_INFERENCE_CONFIG` on G3-stabilized observations.
 - Engine changes must keep `npm run test:engine` green; every rule change needs a fixture in `src/app/domain/engine/*.spec.ts` and an update to the rules document.
 - Recognition must never produce a confident wrong answer: any classifier change must keep `tests/integration/recognition-accuracy.spec.ts`, `recognition-empty.spec.ts`, `recognition-pipeline.spec.ts`, `real-samples.spec.ts` and `recognition-metrics.spec.ts` at zero confident errors; add a scenario for every new failure mode found. Validate every threshold change on the real samples (`tests/fixtures/real-samples`), not only on synthetic boards, and regenerate `docs/vision/recognition-metrics.md` with `npm run eval:recognition`.

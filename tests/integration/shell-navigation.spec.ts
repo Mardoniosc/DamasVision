@@ -4,6 +4,7 @@ import { provideRouter, Router, withComponentInputBinding } from '@angular/route
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../../src/app/app.routes';
 import { GAME_REPOSITORY } from '../../src/app/core/persistence/game.repository';
+import { InMemoryGameRepository } from '../fixtures/in-memory-game-repository';
 
 /**
  * Integration: real route table + lazy feature components, rendered through the router.
@@ -11,7 +12,10 @@ import { GAME_REPOSITORY } from '../../src/app/core/persistence/game.repository'
 describe('Shell navigation (integration)', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [provideRouter(routes, withComponentInputBinding())],
+      providers: [
+        provideRouter(routes, withComponentInputBinding()),
+        { provide: GAME_REPOSITORY, useValue: new InMemoryGameRepository() },
+      ],
     });
   });
 

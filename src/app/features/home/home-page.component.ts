@@ -1,4 +1,5 @@
-import { Component } from '@angular/core';
+import { Component, inject, OnInit, signal } from '@angular/core';
+import { GAME_REPOSITORY } from '../../core/persistence/game.repository';
 import { RouterLink } from '@angular/router';
 
 interface SetupStep {
@@ -18,6 +19,23 @@ interface SetupStep {
           câmera observa o tabuleiro; o motor de regras valida cada lance.
         </p>
       </div>
+
+      @if (resume(); as game) {
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-brand-100 bg-brand-50 p-4"
+          data-testid="resume-game"
+        >
+          <p class="text-sm">
+            Partida em andamento: <strong>{{ game.players }}</strong> · {{ game.moves }} lance(s)
+          </p>
+          <a
+            [routerLink]="['/game', game.id]"
+            class="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700"
+          >
+            Continuar partida
+          </a>
+        </div>
+      }
 
       <div class="flex flex-wrap gap-3">
         <a
@@ -48,7 +66,26 @@ interface SetupStep {
     </section>
   `,
 })
-export class HomePageComponent {
+export class HomePageComponent implements OnInit {
+  private readonly games = inject(GAME_REPOSITORY);
+  /** The most recent unfinished game, to continue after a reload (E7-T07). */
+  protected readonly resume = signal<{ id: string; players: string; moves: number } | null>(null);
+
+  async ngOnInit(): Promise<void> {
+    try {
+      const game = (await this.games.list()).find((g) => g.status !== 'FINISHED');
+      if (game) {
+        this.resume.set({
+          id: game.id,
+          players: `${game.whitePlayerLabel} × ${game.blackPlayerLabel}`,
+          moves: game.moves.length,
+        });
+      }
+    } catch {
+      // Storage unavailable: nothing to continue (the history page explains the error).
+    }
+  }
+
   protected readonly steps: readonly SetupStep[] = [
     { title: 'Câmera', description: 'Escolha a câmera e posicione-a sobre o tabuleiro.' },
     { title: 'Calibração', description: 'Marque os quatro cantos do tabuleiro na imagem.' },

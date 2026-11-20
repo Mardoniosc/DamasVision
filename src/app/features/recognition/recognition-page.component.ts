@@ -1,6 +1,7 @@
 import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { GameSessionController } from '../../core/app-state/game-session.controller';
+import { getSetting, SETTINGS_REPOSITORY } from '../../core/persistence/settings.repository';
 import { PlayerColor } from '../../domain/board/piece';
 import { validateInitialPosition } from '../../domain/game/game-session';
 import { initialPositionMessage } from '../live-game/game-messages';
@@ -120,6 +121,7 @@ export class RecognitionPageComponent {
   protected readonly exportState = signal<ExportState>({ status: 'IDLE' });
   private readonly game = inject(GameSessionController);
   private readonly router = inject(Router);
+  private readonly settings = inject(SETTINGS_REPOSITORY);
   /** Game setup (E6-T02): player labels, side to move, start. */
   protected readonly whiteLabel = signal('');
   protected readonly blackLabel = signal('');
@@ -214,5 +216,17 @@ export class RecognitionPageComponent {
   constructor() {
     void this.store.start();
     inject(DestroyRef).onDestroy(() => this.camera.stop());
+    void this.loadDefaultLabels();
+  }
+
+  /** Default player names from the settings (E7-T04); a storage failure just leaves them blank. */
+  private async loadDefaultLabels(): Promise<void> {
+    try {
+      const labels = await getSetting(this.settings, 'players.defaultLabels');
+      if (labels && !this.whiteLabel()) this.whiteLabel.set(labels.white);
+      if (labels && !this.blackLabel()) this.blackLabel.set(labels.black);
+    } catch {
+      // Names stay empty; the game still starts with "Brancas"/"Pretas".
+    }
   }
 }

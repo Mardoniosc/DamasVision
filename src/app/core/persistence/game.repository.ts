@@ -7,9 +7,10 @@ import {
   GameStatus,
   PositionAdjustment,
 } from '../../domain/game/game-session';
-import { PersistenceError } from './persistence.models';
+import { DAMAS_VISION_DB } from './damas-vision.db';
+import { PersistenceError, toPersistenceError } from './persistence.models';
 
-/** Spec §11, plus the initial player and the position-adjustment audit (ADR-039). */
+/** Spec §11, plus the initial player and the position-adjustment audit (ADR-039, ADR-040). */
 export interface PersistedGame {
   id: string;
   createdAt: string;
@@ -77,41 +78,51 @@ export function toGameSession(game: PersistedGame): GameSession {
 }
 
 /**
- * In-memory games (E6). Games last until the page is reloaded; E7 replaces this provider
- * with the IndexedDB repository behind the same token. Copies on the way in and out, so
- * callers can never mutate what is stored.
+ * IndexedDB-backed games (E7-T02/T05). A game record embeds its moves and adjustments, so
+ * a game and its moves are always written together in a single put (spec §11). Every
+ * failure surfaces as a {@link PersistenceError} with a pt-BR message.
  */
 @Injectable({ providedIn: 'root' })
-export class InMemoryGameRepository implements GameRepository {
-  private readonly games = new Map<string, PersistedGame>();
+export class DexieGameRepository implements GameRepository {
+  private readonly db = inject(DAMAS_VISION_DB);
 
   async create(game: PersistedGame): Promise<void> {
-    if (this.games.has(game.id)) throw new PersistenceError('ALREADY_EXISTS');
-    this.games.set(game.id, structuredClone(game));
+    await this.run(() => this.db.games.add(game));
   }
 
+  /** Replaces the whole record; the game must exist. */
   async update(game: PersistedGame): Promise<void> {
-    if (!this.games.has(game.id)) throw new PersistenceError('NOT_FOUND');
-    this.games.set(game.id, structuredClone(game));
+    await this.run(() =>
+      this.db.transaction('rw', this.db.games, async () => {
+        if (!(await this.db.games.get(game.id))) throw new PersistenceError('NOT_FOUND');
+        await this.db.games.put(game);
+      }),
+    );
   }
 
-  async getById(id: string): Promise<PersistedGame | undefined> {
-    const game = this.games.get(id);
-    return game ? structuredClone(game) : undefined;
+  getById(id: string): Promise<PersistedGame | undefined> {
+    return this.run(() => this.db.games.get(id));
   }
 
-  async list(): Promise<readonly PersistedGame[]> {
-    return [...this.games.values()]
-      .map((game) => structuredClone(game))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  /** Most recently updated first. */
+  list(): Promise<readonly PersistedGame[]> {
+    return this.run(() => this.db.games.orderBy('updatedAt').reverse().toArray());
   }
 
   async delete(id: string): Promise<void> {
-    this.games.delete(id);
+    await this.run(() => this.db.games.delete(id));
+  }
+
+  private async run<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      throw toPersistenceError(error);
+    }
   }
 }
 
 export const GAME_REPOSITORY = new InjectionToken<GameRepository>('GAME_REPOSITORY', {
   providedIn: 'root',
-  factory: () => inject(InMemoryGameRepository),
+  factory: () => inject(DexieGameRepository),
 });

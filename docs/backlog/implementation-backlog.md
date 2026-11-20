@@ -87,11 +87,23 @@ Source: `docs/execution-specification.md` §17. Status values: `TODO`, `DONE`, `
 | E6-T06 | Undo only if robust                                 | DONE                  |
 | **G6** | End-to-end workflow with deterministic observations | APPROVED (2026-11-19) |
 
+## E7 — Persistence
+
+| Task   | Description                              | Status                |
+| ------ | ---------------------------------------- | --------------------- |
+| E7-T01 | IndexedDB schema / migrations (v2)       | DONE                  |
+| E7-T02 | Game repository (Dexie)                  | DONE                  |
+| E7-T03 | Calibration repository                   | DONE (E2)             |
+| E7-T04 | Settings repository (+ settings page)    | DONE                  |
+| E7-T05 | Persist game session / moves             | DONE                  |
+| E7-T06 | History list                             | DONE                  |
+| E7-T07 | Reload / recovery                        | DONE                  |
+| **G7** | Data persists and failure handling works | APPROVED (2026-11-20) |
+
 ## Later epics
 
 | Epic | Scope           | Gate | Status |
 | ---- | --------------- | ---- | ------ |
-| E7   | Persistence     | G7   | TODO   |
 | E8   | Release quality | G8   | TODO   |
 
 Task-level breakdown for E4–E8 is in the specification §17.

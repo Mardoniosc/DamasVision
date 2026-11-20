@@ -19,16 +19,17 @@
         role="alert"
         class="space-y-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm"
       >
-        <p>
-          Partida não encontrada. Por enquanto as partidas ficam guardadas só enquanto a página está
-          aberta; o salvamento no dispositivo chega com a persistência (E7).
-        </p>
+        <p>Partida não encontrada neste dispositivo.</p>
+        @if (game.error(); as error) {
+          <p class="text-red-800" data-testid="game-error">{{ error }}</p>
+        }
         <a
           routerLink="/game/new"
           class="inline-block rounded-md bg-brand-600 px-3 py-2 font-medium text-white hover:bg-brand-700"
         >
           Nova partida
         </a>
+        <a routerLink="/games" class="ml-2 inline-block font-medium underline">Partidas salvas</a>
       </div>
     }
   }

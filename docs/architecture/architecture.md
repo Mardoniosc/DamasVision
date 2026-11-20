@@ -12,7 +12,7 @@ Summary of `docs/execution-specification.md` §3–§4 as implemented so far. Th
 | Frame capture | `src/app/core/frame-capture` | Scheduling, backpressure, stale-frame dropping     | Done (E1)                                                                             |
 | Workers       | `src/app/core/workers`       | Vision worker protocol, entry/handler and client   | Calibration, rectification (E2), recognition (E3)                                     |
 | Vision        | `src/app/vision`             | Worker-side pipeline: OpenCV loader, perspective   | Perspective (E2), recognition (E3)                                                    |
-| Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Calibrations (E2); rest in E7                                                         |
+| Persistence   | `src/app/core/persistence`   | IndexedDB schema, repositories                     | Calibrations (E2), games and settings (E7)                                            |
 | App state     | `src/app/core/app-state`     | Session controller / state machine                 | Empty (E6)                                                                            |
 | Domain        | `src/app/domain/**`          | Board, game, move, rules, engine — pure TypeScript | Board geometry, calibration (E2), observations (E3), engine (E4), move inference (E5) |
 
@@ -91,7 +91,14 @@ Details, measurements and limitations: `docs/vision/recognition.md`; metrics on 
 - `GameSessionController` (`core/app-state`, root) owns the authoritative `GameSession` and the spec §12 phase (`domain/game/game-state-machine.ts`). It receives the G3-stabilized observations from the live page, runs the `MoveTracker` (E5), and commits through `commitMove` (engine-validated). Every change is persisted (`GAME_REPOSITORY`) before it is shown.
 - Setup: `/recognition` → confirmed position → "Iniciar partida" (`validateInitialPosition`) → `/game/:id`.
 - `/game/:id` (`LiveGamePageComponent`): official board, camera and reading, side to move, last move, history, controls. `GameRecoveryComponent` handles candidate confirmation, manual moves and explicit position correction.
-- Persistence: `GAME_REPOSITORY` is in memory until E7 (games are lost on reload).
+- Persistence (E7): `GAME_REPOSITORY` is `DexieGameRepository`; games survive a reload. `/games` lists them (open, continue, delete), the home page offers to continue the latest unfinished game, and `/settings` stores the default player names (`SETTINGS_REPOSITORY`).
+
+## Persistence (E7)
+
+- IndexedDB through Dexie, only in `core/persistence`. Schema v2: `calibrations` (v1), `games` (`id`, indexed by `updatedAt` and `status`), `settings` (`key`). Versions only add; data migrations go in a new version's `upgrade()`.
+- A game record embeds its moves and adjustments, so a game and its moves are always written together in one put.
+- Every failure becomes a `PersistenceError` with a pt-BR message (quota exceeded, storage unavailable, not found, duplicate). The game controller keeps the previous state when a save fails. The pages show the error and keep working where they can.
+- No camera image or video is ever stored.
 
 ## Runtime principles (from spec)
 

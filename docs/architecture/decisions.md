@@ -302,3 +302,18 @@ All dependencies are pinned exactly in `package.json`; `.npmrc` sets `save-exact
     - `/game/:id` shows the official board, the camera with its reading, side to move, last move, history, status, controls (pause, undo, end by agreement or resignation) and `GameRecoveryComponent` (confirm a candidate, register a move by hand, correct the position explicitly).
     - `RecognitionStore.setLivePaused` pauses the camera with the game.
 - **Consequence:** the engine is the only authority. Vision proposes moves; ambiguous, illegal or partial readings never change the game without the user. Gate G6 is covered by controller, page and Chromium E2E tests with deterministic observations.
+
+## ADR-040 — IndexedDB persistence of games and settings (E7)
+
+- **Context:** spec §11 defines the `games`, `calibrations` and `settings` stores and their repositories, with schema versioning, game state and moves persisted together, no video, and explicit storage failures. E6 used an in-memory game repository behind `GAME_REPOSITORY`.
+- **Decision:**
+  - **Schema v2** adds `games` (`id, updatedAt, status`) and `settings` (`key`) on top of v1 `calibrations`. A migration test opens a v1 database and checks the calibrations are kept. The optional `recognitionLogs` store is not created, because nothing needs it yet.
+  - **Games:** `DexieGameRepository` (spec `GameRepository`) replaces the in-memory provider behind the same token; the in-memory class moved to `tests/fixtures` as a test double. A record embeds its moves and adjustments, so one put writes them atomically; `update` checks existence in a transaction.
+  - **Settings:** `DexieSettingsRepository` (spec `SettingsRepository`, `AppSetting`) with typed keys (`SettingValues`). The only setting so far is the default player names, edited on `/settings` and prefilled at game start.
+  - **Pages:** `/games` lists the saved games newest first, with status, result and number of moves, and lets you open, continue or delete one (two-step confirmation). The home page offers to continue the latest unfinished game, and `/game/:id` reloads a saved game.
+  - **Failures:** every Dexie/IndexedDB failure becomes a `PersistenceError` with a pt-BR message, shown by the page. A failed commit keeps the previous game, both in memory and on disk.
+- **Consequence:** Gate G7 is covered by:
+  - repository tests on fake IndexedDB (round trip, ordering, quota, unavailable storage, migration);
+  - controller tests across a simulated reload and with failures;
+  - page tests;
+  - an E2E that reloads the page in Chromium's real IndexedDB.

@@ -15,6 +15,19 @@ export interface CalibrationRepository {
   getActive(): Promise<PersistedCalibration | undefined>;
 }
 
+/** Spec §11. */
+export interface AppSetting<T = unknown> {
+  key: string;
+  value: T;
+  updatedAt: string;
+}
+
+/** Spec §11. */
+export interface SettingsRepository {
+  get<T>(key: string): Promise<T | undefined>;
+  set<T>(key: string, value: T): Promise<void>;
+}
+
 export type PersistenceErrorCode =
   'QUOTA_EXCEEDED' | 'UNAVAILABLE' | 'NOT_FOUND' | 'ALREADY_EXISTS' | 'UNKNOWN';
 

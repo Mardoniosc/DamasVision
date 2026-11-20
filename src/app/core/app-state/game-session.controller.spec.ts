@@ -5,7 +5,8 @@ import { BoardState } from '../../domain/board/piece';
 import { initialBoard } from '../../domain/engine/board-state';
 import { BrazilianCheckersEngine } from '../../domain/engine/checkers-engine';
 import { Move } from '../../domain/move/move';
-import { GAME_REPOSITORY, InMemoryGameRepository } from '../persistence/game.repository';
+import { InMemoryGameRepository } from '../../../../tests/fixtures/in-memory-game-repository';
+import { GAME_REPOSITORY } from '../persistence/game.repository';
 import { PersistenceError } from '../persistence/persistence.models';
 import { GameSessionController } from './game-session.controller';
 
@@ -31,7 +32,9 @@ describe('GameSessionController (E6-T01/T03)', () => {
   }
 
   beforeEach(() => {
-    TestBed.configureTestingModule({});
+    TestBed.configureTestingModule({
+      providers: [{ provide: GAME_REPOSITORY, useValue: new InMemoryGameRepository() }],
+    });
     controller = TestBed.inject(GameSessionController);
     repository = TestBed.inject(GAME_REPOSITORY) as InMemoryGameRepository;
     time = 0;
